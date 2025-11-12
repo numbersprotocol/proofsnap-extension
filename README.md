@@ -185,4 +185,4 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-Copyright © Numbers Protocol
+GPLv3
