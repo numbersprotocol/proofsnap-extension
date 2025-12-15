@@ -347,8 +347,9 @@ async function handleAssetUpload(payload: any) {
     }
 
     const numbersApi = await getNumbersApi();
-    await numbersApi.upload.addToQueue(asset);
-    console.log('Asset queued for upload:', asset.id);
+    // Pass isManualRetry=true since this is triggered by user clicking retry
+    await numbersApi.upload.addToQueue(asset, true);
+    console.log('Asset queued for manual retry upload:', asset.id);
   } catch (error) {
     console.error('Failed to queue asset for upload:', error);
     throw error;

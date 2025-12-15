@@ -8,6 +8,7 @@ import ReactDOM from 'react-dom/client';
 import { indexedDBService, type Asset } from '../services/IndexedDBService';
 import { storageService } from '../services/StorageService';
 import LoginForm from './LoginForm';
+import InsufficientCreditsNotification from './InsufficientCreditsNotification';
 import { getNumbersApi } from '../services/NumbersApiManager';
 import './popup.css';
 
@@ -20,6 +21,7 @@ function PopupApp() {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [capturing, setCapturing] = useState(false);
   const [username, setUsername] = useState<string>('');
+  const [showInsufficientCreditsNotification, setShowInsufficientCreditsNotification] = useState(false);
 
   useEffect(() => {
     loadInitialData();
@@ -44,6 +46,9 @@ function PopupApp() {
       // Successfully uploaded assets are deleted to save disk space
       const assets = await indexedDBService.getAllAssets();
       setAssets(assets);
+
+      // Check for insufficient credits error
+      await checkCreditStatus(assets);
     } catch (error) {
       console.error('Failed to load data:', error);
     } finally {
@@ -109,6 +114,27 @@ function PopupApp() {
     }
   }
 
+  async function checkCreditStatus(currentAssets: Asset[]) {
+    // Check if any asset failed due to insufficient credits
+    const hasCreditError = currentAssets.some(
+      asset => asset.status === 'failed' && asset.metadata?.errorType === 'insufficient_credits'
+    );
+
+    if (hasCreditError) {
+      // Only show notification if user hasn't dismissed it yet
+      const dismissed = await storageService.hasInsufficientCreditsNotificationDismissed();
+      if (!dismissed) {
+        setShowInsufficientCreditsNotification(true);
+      }
+    }
+  }
+
+  async function handleCloseNotification() {
+    setShowInsufficientCreditsNotification(false);
+    // Mark as dismissed so we don't show it again until they successfully upload
+    await storageService.setInsufficientCreditsNotificationDismissed(true);
+  }
+
   // Listen for upload progress updates
   useEffect(() => {
     const handleMessage = async (message: any) => {
@@ -116,6 +142,7 @@ function PopupApp() {
         // Reload assets to show updated progress
         const assets = await indexedDBService.getAllAssets();
         setAssets(assets);
+        await checkCreditStatus(assets);
       }
     };
 
@@ -156,6 +183,12 @@ function PopupApp() {
           ⚙️
         </button>
       </div>
+
+      {showInsufficientCreditsNotification && (
+        <InsufficientCreditsNotification
+          onClose={handleCloseNotification}
+        />
+      )}
 
       <div className="capture-section">
         <button
@@ -267,18 +300,25 @@ function AssetThumbnail({ asset, onUpload }: { asset: Asset; onUpload?: (assetId
             onClick={handleUploadClick}
             title={
               asset.status === 'draft' ? 'Click to upload' :
-              asset.status === 'failed' ? 'Click to retry upload' :
-              asset.status
+                asset.status === 'failed' ?
+                  (asset.metadata?.errorType === 'insufficient_credits' ?
+                    'Upload failed: Insufficient credits. Click to retry.' :
+                    'Click to retry upload') :
+                  asset.status
             }
           >
-            {statusIcons[asset.status] || ''} {asset.status}
+            {statusIcons[asset.status] || ''} {
+              asset.status === 'failed' && asset.metadata?.errorType === 'insufficient_credits'
+                ? 'No credits'
+                : asset.status
+            }
           </div>
         )}
       </div>
       {asset.status === 'uploading' && asset.metadata?.uploadProgress && (
         <div className="upload-progress">
-          <div 
-            className="upload-progress-bar" 
+          <div
+            className="upload-progress-bar"
             style={{ width: `${(asset.metadata.uploadProgress * 100)}%` }}
           />
         </div>
