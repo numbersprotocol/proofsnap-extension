@@ -303,8 +303,19 @@ async function handleSelectionComplete(payload: any) {
     // Auto-upload if enabled
     if (settings.autoUpload) {
       try {
-        const numbersApi = await getNumbersApi();
-        const auth = numbersApi.auth.isAuthenticated();
+        let numbersApi = await getNumbersApi();
+        let auth = numbersApi.auth.isAuthenticated();
+        
+        // If not authenticated in memory, try to reload token from storage
+        if (!auth) {
+          const storedAuth = await metadataStorage.getAuth();
+          if (storedAuth?.token) {
+            numbersApi.setAuthToken(storedAuth.token);
+            auth = true;
+            console.log('✅ Restored auth token from storage');
+          }
+        }
+        
         if (auth) {
           await numbersApi.upload.addToQueue(asset);
           console.log('✅ Asset added to upload queue');
@@ -491,8 +502,19 @@ async function handleScreenshotCapture(
     // Auto-upload if enabled
     if (settings.autoUpload) {
       try {
-        const numbersApi = await getNumbersApi();
-        const auth = numbersApi.auth.isAuthenticated();
+        let numbersApi = await getNumbersApi();
+        let auth = numbersApi.auth.isAuthenticated();
+        
+        // If not authenticated in memory, try to reload token from storage
+        if (!auth) {
+          const storedAuth = await metadataStorage.getAuth();
+          if (storedAuth?.token) {
+            numbersApi.setAuthToken(storedAuth.token);
+            auth = true;
+            console.log('✅ Restored auth token from storage');
+          }
+        }
+        
         if (auth) {
           await numbersApi.upload.addToQueue(asset);
           console.log('✅ Asset added to upload queue');

@@ -566,7 +566,7 @@ function AssetThumbnail({ asset, onUpload, huntMode }: { asset: Asset; onUpload?
     if (asset.metadata?.nid) {
       // Open Numbers Protocol asset page in new tab
       chrome.tabs.create({
-        url: `https://verify.numbersprotocol.io/asset-profile/${asset.metadata.nid}`,
+        url: `https://asset.captureapp.xyz/${asset.metadata.nid}`,
       });
     }
   };
@@ -574,7 +574,7 @@ function AssetThumbnail({ asset, onUpload, huntMode }: { asset: Asset; onUpload?
   const handleShareToX = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (asset.metadata?.nid && huntMode) {
-      const verifyUrl = `https://verify.numbersprotocol.io/asset-profile/${asset.metadata.nid}`;
+      const verifyUrl = `https://asset.captureapp.xyz/${asset.metadata.nid}`;
       const text = `${huntMode.message} ${verifyUrl} ${huntMode.hashtags}`;
       const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`;
       chrome.tabs.create({ url: twitterUrl });
@@ -584,7 +584,7 @@ function AssetThumbnail({ asset, onUpload, huntMode }: { asset: Asset; onUpload?
   const handleCopyLink = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (asset.metadata?.nid) {
-      const verifyUrl = `https://verify.numbersprotocol.io/asset-profile/${asset.metadata.nid}`;
+      const verifyUrl = `https://asset.captureapp.xyz/${asset.metadata.nid}`;
       try {
         await navigator.clipboard.writeText(verifyUrl);
         // Could add toast notification here
@@ -734,7 +734,7 @@ function SharePromptModal({
   onClose: () => void;
 }) {
   const verifyUrl = asset.metadata?.nid
-    ? `https://verify.numbersprotocol.io/asset-profile/${asset.metadata.nid}`
+    ? `https://asset.captureapp.xyz/${asset.metadata.nid}`
     : '';
 
   const handleShareToX = () => {

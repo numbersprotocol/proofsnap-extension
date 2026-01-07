@@ -18,7 +18,7 @@ async function init() {
 
   // Get Hunt Mode settings
   const settings = await storageService.getSettings();
-  const verifyUrl = `https://verify.numbersprotocol.io/asset-profile/${nid}`;
+  const verifyUrl = `https://asset.captureapp.xyz/${nid}`;
   const shareText = `${settings.huntModeMessage} ${verifyUrl} ${settings.huntModeHashtags}`;
   const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`;
 
