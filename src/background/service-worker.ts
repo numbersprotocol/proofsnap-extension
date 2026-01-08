@@ -261,6 +261,26 @@ async function handleSelectionComplete(payload: any) {
       console.warn('Failed to process selection:', response.error);
     }
 
+    // Get location if enabled via offscreen document
+    let gpsLocation: { latitude: number; longitude: number; accuracy: number; timestamp: number } | undefined = undefined;
+    if (settings.includeLocation) {
+      try {
+        await ensureOffscreenDocument();
+        const locationResponse = await chrome.runtime.sendMessage({
+          type: 'GET_GEOLOCATION',
+        });
+        if (locationResponse.success && locationResponse.data) {
+          gpsLocation = locationResponse.data;
+          console.log('✅ Geolocation captured:', gpsLocation!.latitude, gpsLocation!.longitude);
+        } else {
+          console.warn('⚠️ Could not get geolocation:', locationResponse.error || 'Permission denied or unavailable');
+        }
+      } catch (error) {
+        console.warn('⚠️ Geolocation error:', error);
+        // Continue without location
+      }
+    }
+
     // Capture website metadata if enabled
     let sourceWebsite = undefined;
     if (settings.includeWebsiteInfo && tab.url && tab.title) {
@@ -290,7 +310,7 @@ async function handleSelectionComplete(payload: any) {
         height: coordinates.height,
         captureMode: 'selection',
       },
-      gpsLocation: undefined,
+      gpsLocation,
       sourceWebsite,
     };
 
@@ -441,9 +461,24 @@ async function handleScreenshotCapture(
       // Continue without watermark if it fails
     }
 
-    // Get location if enabled (not available in service worker yet)
+    // Get location if enabled via offscreen document
+    let gpsLocation: { latitude: number; longitude: number; accuracy: number; timestamp: number } | undefined = undefined;
     if (settings.includeLocation) {
-      console.log('Location not available in service worker context');
+      try {
+        await ensureOffscreenDocument();
+        const locationResponse = await chrome.runtime.sendMessage({
+          type: 'GET_GEOLOCATION',
+        });
+        if (locationResponse.success && locationResponse.data) {
+          gpsLocation = locationResponse.data;
+          console.log('✅ Geolocation captured:', gpsLocation!.latitude, gpsLocation!.longitude);
+        } else {
+          console.warn('⚠️ Could not get geolocation:', locationResponse.error || 'Permission denied or unavailable');
+        }
+      } catch (error) {
+        console.warn('⚠️ Geolocation error:', error);
+        // Continue without location
+      }
     }
 
     // Capture website metadata if enabled
@@ -476,7 +511,7 @@ async function handleScreenshotCapture(
         width,
         height,
       },
-      gpsLocation: undefined,
+      gpsLocation,
       sourceWebsite,
     };
 

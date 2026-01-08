@@ -163,6 +163,92 @@ function WebsiteInfoSettings({
 }
 
 /**
+ * Location Settings Component
+ * Allows user to enable/disable geolocation capture
+ */
+function LocationSettings({
+  settings,
+  onSave,
+}: {
+  settings: StoredSettings;
+  onSave: (updates: Partial<StoredSettings>) => void;
+}) {
+  const [permissionStatus, setPermissionStatus] = useState<'granted' | 'denied' | 'prompt' | 'unknown'>('unknown');
+
+  useEffect(() => {
+    // Check geolocation permission status
+    if (navigator.permissions) {
+      navigator.permissions.query({ name: 'geolocation' }).then((result) => {
+        setPermissionStatus(result.state);
+        result.onchange = () => setPermissionStatus(result.state);
+      }).catch(() => {
+        setPermissionStatus('unknown');
+      });
+    }
+  }, []);
+
+  const handleEnableLocation = async (enabled: boolean) => {
+    if (enabled) {
+      // Request permission by triggering a geolocation request
+      try {
+        await new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 10000,
+          });
+        });
+        setPermissionStatus('granted');
+        onSave({ includeLocation: true });
+      } catch (error) {
+        setPermissionStatus('denied');
+        alert('Location permission was denied. Please enable it in your browser settings to use this feature.');
+      }
+    } else {
+      onSave({ includeLocation: false });
+    }
+  };
+
+  return (
+    <section className="settings-section">
+      <h2>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 8, verticalAlign: 'text-bottom' }} aria-hidden="true">
+          <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+          <circle cx="12" cy="10" r="3"></circle>
+        </svg>
+        Location
+      </h2>
+
+      <div className="setting-item">
+        <div className="setting-header">
+          <label htmlFor="includeLocation">Include location in metadata</label>
+          <input
+            id="includeLocation"
+            type="checkbox"
+            checked={settings.includeLocation}
+            onChange={(e) => handleEnableLocation(e.target.checked)}
+            className="toggle-switch"
+          />
+        </div>
+        <p className="setting-description">
+          Capture your current GPS coordinates when taking a snap.
+          This information is stored in the blockchain metadata for verification purposes and is not visible on the screenshot.
+        </p>
+        {permissionStatus === 'denied' && settings.includeLocation && (
+          <p className="setting-warning" style={{ color: '#ef4444', marginTop: '8px' }}>
+            ⚠️ Location permission is denied. Please enable it in your browser settings.
+          </p>
+        )}
+        {permissionStatus === 'granted' && settings.includeLocation && (
+          <p className="setting-success" style={{ color: '#22c55e', marginTop: '8px' }}>
+            ✓ Location permission granted
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/**
  * Capture Settings Component
  */
 function CaptureSettings({
@@ -450,6 +536,7 @@ function OptionsApp() {
         <HuntModeSettings settings={settings} onSave={handleSaveSettings} />
         <WatermarkSettings settings={settings} onSave={handleSaveSettings} />
         <WebsiteInfoSettings settings={settings} onSave={handleSaveSettings} />
+        <LocationSettings settings={settings} onSave={handleSaveSettings} />
         <CaptureSettings settings={settings} onSave={handleSaveSettings} />
         <UploadSettings settings={settings} onSave={handleSaveSettings} />
 

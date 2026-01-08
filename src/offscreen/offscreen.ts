@@ -39,7 +39,47 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       .catch((error) => sendResponse({ success: false, error: error.message }));
     return true;
   }
+  if (message.type === 'GET_GEOLOCATION') {
+    getGeolocation()
+      .then((result) => sendResponse({ success: true, data: result }))
+      .catch((error) => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
 });
+
+/**
+ * Get current geolocation
+ * Returns latitude, longitude, accuracy, and timestamp
+ */
+async function getGeolocation(): Promise<{ latitude: number; longitude: number; accuracy: number; timestamp: number } | null> {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error('Geolocation not supported'));
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        resolve({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracy: position.coords.accuracy,
+          timestamp: position.timestamp,
+        });
+      },
+      (error) => {
+        console.warn('Geolocation error:', error.message);
+        // Don't reject - just return null so capture continues
+        resolve(null);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 60000, // Cache for 1 minute
+      }
+    );
+  });
+}
 
 /**
  * Crop image to specified coordinates
