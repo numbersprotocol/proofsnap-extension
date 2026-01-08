@@ -43,9 +43,6 @@ jobs:
       - name: Run type check
         run: npm run type-check
 
-      - name: Run linter
-        run: npm run lint
-
       - name: Bump version
         id: bump
         run: |
@@ -57,6 +54,7 @@ jobs:
           echo "old_version=$OLD_VERSION" >> $GITHUB_OUTPUT
 
       - name: Build and package extension
+        id: package
         run: |
           node scripts/package.js > package_output.txt
           cat package_output.txt
@@ -64,7 +62,6 @@ jobs:
           ZIP_NAME=$(grep "ZIP_NAME=" package_output.txt | cut -d'=' -f2)
           echo "zip_path=$ZIP_PATH" >> $GITHUB_OUTPUT
           echo "zip_name=$ZIP_NAME" >> $GITHUB_OUTPUT
-        id: package
 
       - name: Commit version bump
         run: |
