@@ -1,0 +1,102 @@
+name: Release to Chrome Web Store
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_type:
+        description: 'Version bump type: patch (bug fixes, small changes), minor (new features), major (big changes)'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Bump version
+        id: bump
+        run: |
+          node scripts/bump-version.js ${{ github.event.inputs.version_type }} > bump_output.txt
+          cat bump_output.txt
+          NEW_VERSION=$(grep "NEW_VERSION=" bump_output.txt | cut -d'=' -f2)
+          OLD_VERSION=$(grep "OLD_VERSION=" bump_output.txt | cut -d'=' -f2)
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "old_version=$OLD_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Generate manifest.json from template
+        run: node scripts/generate-manifest.js
+        env:
+          OAUTH_CLIENT_ID: ${{ vars.OAUTH_CLIENT_ID }}
+          EXTENSION_KEY: ${{ vars.EXTENSION_KEY }}
+
+      - name: Run type check
+        run: npm run type-check
+
+      - name: Build and package extension
+        id: package
+        run: |
+          node scripts/package.js > package_output.txt
+          cat package_output.txt
+          ZIP_PATH=$(grep "ZIP_PATH=" package_output.txt | cut -d'=' -f2)
+          ZIP_NAME=$(grep "ZIP_NAME=" package_output.txt | cut -d'=' -f2)
+          echo "zip_path=$ZIP_PATH" >> $GITHUB_OUTPUT
+          echo "zip_name=$ZIP_NAME" >> $GITHUB_OUTPUT
+
+      - name: Commit version bump
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add manifest.template.json package.json
+          git commit -m "chore: release version ${{ steps.bump.outputs.new_version }}"
+          git tag -a "v${{ steps.bump.outputs.new_version }}" -m "Release version ${{ steps.bump.outputs.new_version }}"
+          git push origin main
+          git push origin "v${{ steps.bump.outputs.new_version }}"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.bump.outputs.new_version }}
+          name: Release v${{ steps.bump.outputs.new_version }}
+          body: |
+            ## ProofSnap Extension v${{ steps.bump.outputs.new_version }}
+
+            Released version ${{ steps.bump.outputs.new_version }}
+
+            ### Changes
+            - Version bumped from ${{ steps.bump.outputs.old_version }} to ${{ steps.bump.outputs.new_version }}
+
+            ### Installation
+            Install from [Chrome Web Store](https://chrome.google.com/webstore/detail/${{ vars.CHROME_EXTENSION_ID }})
+          draft: false
+          prerelease: false
+
+      - name: Upload to Chrome Web Store (as draft)
+        uses: mnao305/chrome-extension-upload@v5.0.0
+        with:
+          extension-id: ${{ vars.CHROME_EXTENSION_ID }}
+          client-id: ${{ secrets.CHROME_CLIENT_ID }}
+          client-secret: ${{ secrets.CHROME_CLIENT_SECRET }}
+          refresh-token: ${{ secrets.CHROME_REFRESH_TOKEN }}
+          file-path: ${{ steps.package.outputs.zip_path }}
+          publish: false

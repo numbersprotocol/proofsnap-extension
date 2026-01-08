@@ -3,6 +3,7 @@ node_modules/
 
 # Build output
 dist/
+dist-zip/
 *.zip
 *.local
 
@@ -21,6 +22,10 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Script output files
+bump_output.txt
+package_output.txt
 
 # Private keys (NEVER commit these!)
 *.pem

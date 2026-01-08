@@ -1,58 +1,57 @@
 {
-    "manifest_version": 3,
-    "name": "ProofSnap",
-    "version": "1.1.1",
-    "description": "Snap once. Prove forever. Turn your browser into a trust engine—sealing screenshots with cryptographic proof.",
-    "permissions": [
-        "activeTab",
-        "storage",
-        "tabs",
-        "offscreen",
-        "notifications",
-        "identity",
-        "scripting"
-    ],
-    "oauth2": {
-        "client_id": "YOUR_OAUTH2_CLIENT_ID",
-        "scopes": [
-            "openid",
-            "email",
-            "profile"
-        ]
-    },
-    "key": "YOUR_EXTENSION_PUBLIC_KEY",
-    "host_permissions": [
-        "https://api.numbersprotocol.io/*",
-        "<all_urls>"
-    ],
-    "content_security_policy": {
-        "extension_pages": "script-src 'self'; object-src 'self'"
-    },
-    "background": {
-        "service_worker": "background.js",
-        "type": "module"
-    },
-    "action": {
-        "default_popup": "src/popup/popup.html",
-        "default_icon": {
-            "16": "icons/icon16.png",
-            "48": "icons/icon48.png",
-            "128": "icons/icon128.png"
-        }
-    },
-    "options_page": "src/options/options.html",
-    "icons": {
-        "16": "icons/icon16.png",
-        "48": "icons/icon48.png",
-        "128": "icons/icon128.png"
-    },
-    "commands": {
-        "capture-screenshot": {
-            "suggested_key": {
-                "default": "Ctrl+Shift+S",
-                "mac": "Command+Shift+S"
-            },
-            "description": "Capture screenshot"
-        }
+  "manifest_version": 3,
+  "name": "ProofSnap",
+  "version": "1.1.4",
+  "description": "Snap once. Prove forever. Turn your browser into a trust engine—sealing screenshots with cryptographic proof.",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "tabs",
+    "offscreen",
+    "notifications",
+    "identity",
+    "scripting"
+  ],
+  "oauth2": {
+    "client_id": "YOUR_OAUTH2_CLIENT_ID",
+    "scopes": [
+      "openid",
+      "email",
+      "profile"
+    ]
+  },
+  "key": "YOUR_EXTENSION_PUBLIC_KEY",
+  "host_permissions": [
+    "https://api.numbersprotocol.io/*"
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "src/popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
     }
+  },
+  "options_page": "src/options/options.html",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "commands": {
+    "capture-screenshot": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+S",
+        "mac": "Command+Shift+S"
+      },
+      "description": "Capture screenshot"
+    }
+  }
 }
