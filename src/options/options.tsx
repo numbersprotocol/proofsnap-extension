@@ -407,7 +407,6 @@ function HuntModeSettings({
     </section>
   );
 }
-}
 
 /**
  * Upload Settings Component
