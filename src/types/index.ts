@@ -63,7 +63,9 @@ export type MessageType =
   | 'AUTH_STATUS_CHANGED'
   | 'SETTINGS_UPDATED'
   | 'ADD_WATERMARK'
-  | 'START_GOOGLE_AUTH';
+  | 'START_GOOGLE_AUTH'
+  | 'SELECTION_COMPLETE'
+  | 'CROP_IMAGE';
 
 export interface ExtensionMessage<T = any> {
   type: MessageType;

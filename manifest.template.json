@@ -9,7 +9,8 @@
     "tabs",
     "offscreen",
     "notifications",
-    "identity"
+    "identity",
+    "scripting"
   ],
   "oauth2": {
     "client_id": "YOUR_OAUTH2_CLIENT_ID",

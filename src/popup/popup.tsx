@@ -13,6 +13,15 @@ import { getNumbersApi } from '../services/NumbersApiManager';
 import './popup.css';
 
 /**
+ * Hunt Mode settings interface for popup
+ */
+interface HuntModeConfig {
+  enabled: boolean;
+  message: string;
+  hashtags: string;
+}
+
+/**
  * Main Popup Component
  */
 function PopupApp() {
@@ -20,9 +29,12 @@ function PopupApp() {
   const [isLoading, setIsLoading] = useState(true);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [capturing, setCapturing] = useState(false);
+  const [captureMode, setCaptureMode] = useState<'visible' | 'selection'>('visible');
   const [username, setUsername] = useState<string>('');
   const [email, setEmail] = useState<string>('');
   const [showInsufficientCreditsNotification, setShowInsufficientCreditsNotification] = useState(false);
+  const [huntMode, setHuntMode] = useState<HuntModeConfig>({ enabled: false, message: '', hashtags: '' });
+  const [sharePromptAsset, setSharePromptAsset] = useState<Asset | null>(null);
 
   useEffect(() => {
     loadInitialData();
@@ -51,6 +63,31 @@ function PopupApp() {
       const assets = await indexedDBService.getAllAssets();
       setAssets(assets);
 
+      // Load Hunt Mode settings
+      const settings = await storageService.getSettings();
+      const huntModeActive = settings.huntModeEnabled;
+      console.log('[Hunt Mode Popup] Settings:', { huntModeEnabled: settings.huntModeEnabled, huntModeActive });
+      setHuntMode({
+        enabled: huntModeActive,
+        message: settings.huntModeMessage,
+        hashtags: settings.huntModeHashtags,
+      });
+
+      // Check for pending share prompt (from upload that completed while popup was closed)
+      if (huntModeActive) {
+        const pendingNid = await storageService.getAndClearPendingShare();
+        console.log('[Hunt Mode Popup] Pending NID:', pendingNid);
+        if (pendingNid) {
+          setSharePromptAsset({
+            id: 'pending',
+            uri: '',
+            status: 'uploaded',
+            createdAt: new Date().toISOString(),
+            metadata: { nid: pendingNid },
+          } as any);
+        }
+      }
+
       // Check for insufficient credits error
       await checkCreditStatus(assets);
     } catch (error) {
@@ -60,13 +97,13 @@ function PopupApp() {
     }
   }
 
-  async function handleCapture() {
+  async function handleCapture(mode: 'visible' | 'selection' = captureMode) {
     setCapturing(true);
     try {
       const response = await chrome.runtime.sendMessage({
         type: 'CAPTURE_SCREENSHOT',
         payload: {
-          mode: 'visible',
+          mode: mode,
         },
       });
 
@@ -75,6 +112,9 @@ function PopupApp() {
         // Reload assets from IndexedDB
         const assets = await indexedDBService.getAllAssets();
         setAssets(assets);
+      } else if (response.cancelled) {
+        // User cancelled selection - do nothing
+        console.log('Screenshot cancelled');
       } else {
         console.error('Capture failed:', response.error);
         alert('Failed to capture screenshot: ' + response.error);
@@ -160,16 +200,30 @@ function PopupApp() {
   useEffect(() => {
     const handleMessage = async (message: any) => {
       if (message.type === 'UPLOAD_PROGRESS') {
+        const payload = message.payload;
+        
         // Reload assets to show updated progress
-        const assets = await indexedDBService.getAllAssets();
-        setAssets(assets);
-        await checkCreditStatus(assets);
+        const updatedAssets = await indexedDBService.getAllAssets();
+        setAssets(updatedAssets);
+        await checkCreditStatus(updatedAssets);
+
+        // In Hunt Mode, show share prompt when upload succeeds
+        if (huntMode.enabled && payload?.status === 'uploaded' && payload?.nid) {
+          // Asset is deleted after upload, so create a minimal object for share prompt
+          setSharePromptAsset({
+            id: payload.assetId,
+            uri: '', // We don't have the image anymore, modal will handle this
+            status: 'uploaded',
+            createdAt: new Date().toISOString(),
+            metadata: { nid: payload.nid },
+          } as any);
+        }
       }
     };
 
     chrome.runtime.onMessage.addListener(handleMessage);
     return () => chrome.runtime.onMessage.removeListener(handleMessage);
-  }, [showInsufficientCreditsNotification]); // Add dependency since checkCreditStatus uses this state
+  }, [showInsufficientCreditsNotification, huntMode.enabled]); // Add huntMode dependency
 
   if (isLoading) {
     return (
@@ -214,13 +268,24 @@ function PopupApp() {
 
       <CaptureSection
         capturing={capturing}
+        captureMode={captureMode}
+        onCaptureMode={setCaptureMode}
         onCapture={handleCapture}
       />
 
       <AssetList
         assets={assets}
         onUpload={handleUpload}
+        huntMode={huntMode}
       />
+
+      {sharePromptAsset && (
+        <SharePromptModal
+          asset={sharePromptAsset}
+          huntMode={huntMode}
+          onClose={() => setSharePromptAsset(null)}
+        />
+      )}
 
       <PopupFooter onOpenDashboard={openDashboard} />
     </div>
@@ -286,16 +351,90 @@ function PopupHeader({
  */
 function CaptureSection({
   capturing,
+  captureMode,
+  onCaptureMode,
   onCapture
 }: {
   capturing: boolean;
-  onCapture: () => void;
+  captureMode: 'visible' | 'selection';
+  onCaptureMode: (mode: 'visible' | 'selection') => void;
+  onCapture: (mode?: 'visible' | 'selection') => void;
 }) {
   return (
     <div className="capture-section">
+      {/* Capture Mode Toggle */}
+      <div className="capture-mode-toggle" style={{ 
+        display: 'flex', 
+        gap: '4px', 
+        marginBottom: '12px',
+        background: 'rgba(0, 0, 0, 0.1)',
+        borderRadius: '8px',
+        padding: '4px'
+      }}>
+        <button
+          className={`mode-button ${captureMode === 'visible' ? 'active' : ''}`}
+          onClick={() => onCaptureMode('visible')}
+          disabled={capturing}
+          title="Capture visible area"
+          style={{
+            flex: 1,
+            padding: '8px 12px',
+            border: 'none',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            fontSize: '12px',
+            fontWeight: 500,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '6px',
+            background: captureMode === 'visible' ? 'white' : 'transparent',
+            color: captureMode === 'visible' ? '#1a1a1a' : '#666',
+            boxShadow: captureMode === 'visible' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+            transition: 'all 0.2s ease'
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+            <line x1="8" y1="21" x2="16" y2="21"></line>
+            <line x1="12" y1="17" x2="12" y2="21"></line>
+          </svg>
+          Full Page
+        </button>
+        <button
+          className={`mode-button ${captureMode === 'selection' ? 'active' : ''}`}
+          onClick={() => onCaptureMode('selection')}
+          disabled={capturing}
+          title="Select area to capture"
+          style={{
+            flex: 1,
+            padding: '8px 12px',
+            border: 'none',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            fontSize: '12px',
+            fontWeight: 500,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '6px',
+            background: captureMode === 'selection' ? 'white' : 'transparent',
+            color: captureMode === 'selection' ? '#1a1a1a' : '#666',
+            boxShadow: captureMode === 'selection' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+            transition: 'all 0.2s ease'
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M5 3v4M3 5h4M21 5h-4M19 3v4M5 21v-4M3 19h4M21 19h-4M19 21v-4"></path>
+            <rect x="7" y="7" width="10" height="10" rx="1"></rect>
+          </svg>
+          Select Area
+        </button>
+      </div>
+
       <button
         className="capture-button"
-        onClick={onCapture}
+        onClick={() => onCapture()}
         disabled={capturing}
         aria-label="Capture screenshot"
       >
@@ -311,7 +450,7 @@ function CaptureSection({
                 <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
                 <circle cx="12" cy="13" r="4"></circle>
               </svg>
-              Snap
+              Snap {captureMode === 'selection' ? 'Selection' : ''}
             </>
           )}
         </div>
@@ -325,10 +464,12 @@ function CaptureSection({
  */
 function AssetList({
   assets,
-  onUpload
+  onUpload,
+  huntMode
 }: {
   assets: Asset[];
   onUpload: (id: string) => void;
+  huntMode: HuntModeConfig;
 }) {
   return (
     <div className="content">
@@ -345,7 +486,7 @@ function AssetList({
       ) : (
         <div className="asset-grid">
           {assets.slice(0, 6).map((asset) => (
-            <AssetThumbnail key={asset.id} asset={asset} onUpload={onUpload} />
+            <AssetThumbnail key={asset.id} asset={asset} onUpload={onUpload} huntMode={huntMode} />
           ))}
         </div>
       )}
@@ -369,7 +510,7 @@ function PopupFooter({ onOpenDashboard }: { onOpenDashboard: () => void }) {
 /**
  * Asset Thumbnail Component
  */
-function AssetThumbnail({ asset, onUpload }: { asset: Asset; onUpload?: (assetId: string) => void }) {
+function AssetThumbnail({ asset, onUpload, huntMode }: { asset: Asset; onUpload?: (assetId: string) => void; huntMode?: HuntModeConfig }) {
   const date = new Date(asset.createdAt);
   const statusColors: Record<string, string> = {
     draft: '#808080',
@@ -422,8 +563,31 @@ function AssetThumbnail({ asset, onUpload }: { asset: Asset; onUpload?: (assetId
     if (asset.metadata?.nid) {
       // Open Numbers Protocol asset page in new tab
       chrome.tabs.create({
-        url: `https://verify.numbersprotocol.io/asset-profile/${asset.metadata.nid}`,
+        url: `https://asset.captureapp.xyz/${asset.metadata.nid}`,
       });
+    }
+  };
+
+  const handleShareToX = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (asset.metadata?.nid && huntMode) {
+      const verifyUrl = `https://asset.captureapp.xyz/${asset.metadata.nid}`;
+      const text = `${huntMode.message} ${verifyUrl} ${huntMode.hashtags}`;
+      const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`;
+      chrome.tabs.create({ url: twitterUrl });
+    }
+  };
+
+  const handleCopyLink = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (asset.metadata?.nid) {
+      const verifyUrl = `https://asset.captureapp.xyz/${asset.metadata.nid}`;
+      try {
+        await navigator.clipboard.writeText(verifyUrl);
+        // Could add toast notification here
+      } catch (err) {
+        console.error('Failed to copy:', err);
+      }
     }
   };
 
@@ -452,18 +616,72 @@ function AssetThumbnail({ asset, onUpload }: { asset: Asset; onUpload?: (assetId
           })()}
         </div>
         {asset.status === 'uploaded' && asset.metadata?.nid ? (
-          <div
-            className="asset-status blockchain-link"
-            style={{ backgroundColor: statusColors[asset.status], display: 'flex', alignItems: 'center', gap: '4px' }}
-            onClick={handleViewOnBlockchain}
-            title="View on blockchain"
-          >
-            {statusIcons[asset.status]} Verified
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
-              <polyline points="15 3 21 3 21 9"></polyline>
-              <line x1="10" y1="14" x2="21" y2="3"></line>
-            </svg>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <div
+              className="asset-status blockchain-link"
+              style={{ backgroundColor: statusColors[asset.status], display: 'flex', alignItems: 'center', gap: '4px' }}
+              onClick={handleViewOnBlockchain}
+              title="View on blockchain"
+            >
+              {statusIcons[asset.status]} Verified
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                <polyline points="15 3 21 3 21 9"></polyline>
+                <line x1="10" y1="14" x2="21" y2="3"></line>
+              </svg>
+            </div>
+            {/* Hunt Mode share buttons */}
+            {huntMode?.enabled && (
+              <div className="hunt-share-buttons" style={{ display: 'flex', gap: '4px' }}>
+                <button
+                  className="share-btn share-x"
+                  onClick={handleShareToX}
+                  title="Share on X"
+                  style={{
+                    flex: 1,
+                    padding: '4px 6px',
+                    border: 'none',
+                    borderRadius: '4px',
+                    background: '#000',
+                    color: '#fff',
+                    fontSize: '10px',
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '3px',
+                  }}
+                >
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                  </svg>
+                  Share
+                </button>
+                <button
+                  className="share-btn share-copy"
+                  onClick={handleCopyLink}
+                  title="Copy link"
+                  style={{
+                    padding: '4px 6px',
+                    border: 'none',
+                    borderRadius: '4px',
+                    background: '#e5e5e7',
+                    color: '#1d1d1f',
+                    fontSize: '10px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                  </svg>
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           <div
@@ -495,6 +713,182 @@ function AssetThumbnail({ asset, onUpload }: { asset: Asset; onUpload?: (assetId
           />
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Share Prompt Modal Component
+ * Shows after successful upload in Hunt Mode
+ */
+function SharePromptModal({
+  asset,
+  huntMode,
+  onClose
+}: {
+  asset: Asset;
+  huntMode: HuntModeConfig;
+  onClose: () => void;
+}) {
+  const verifyUrl = asset.metadata?.nid
+    ? `https://asset.captureapp.xyz/${asset.metadata.nid}`
+    : '';
+
+  const handleShareToX = () => {
+    const text = `${huntMode.message} ${verifyUrl} ${huntMode.hashtags}`;
+    const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`;
+    chrome.tabs.create({ url: twitterUrl });
+    onClose();
+  };
+
+  const handleCopyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(verifyUrl);
+      onClose();
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+
+  return (
+    <div className="share-modal-overlay" style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      background: 'rgba(0, 0, 0, 0.6)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 1000,
+      padding: '20px',
+    }}>
+      <div className="share-modal" style={{
+        background: 'white',
+        borderRadius: '16px',
+        padding: '24px',
+        maxWidth: '300px',
+        width: '100%',
+        textAlign: 'center',
+        boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
+      }}>
+        <div style={{ marginBottom: '16px' }}>
+          <span style={{ fontSize: '48px' }}>🎯</span>
+        </div>
+        <h3 style={{
+          margin: '0 0 8px 0',
+          fontSize: '18px',
+          fontWeight: 600,
+          color: '#1d1d1f',
+        }}>
+          Snap Verified!
+        </h3>
+        <p style={{
+          margin: '0 0 20px 0',
+          fontSize: '14px',
+          color: '#86868b',
+          lineHeight: 1.5,
+        }}>
+          Share your verified snap on X to participate in the AI Hunt event!
+        </p>
+
+        {/* Preview image - only show if we have it */}
+        {asset.uri && (
+          <div style={{
+            marginBottom: '16px',
+            borderRadius: '8px',
+            overflow: 'hidden',
+            border: '1px solid #e5e5e7',
+          }}>
+            <img
+              src={asset.uri}
+              alt="Screenshot"
+              style={{
+                width: '100%',
+                height: '80px',
+                objectFit: 'cover',
+              }}
+            />
+          </div>
+        )}
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <button
+            onClick={handleShareToX}
+            style={{
+              width: '100%',
+              padding: '12px 16px',
+              border: 'none',
+              borderRadius: '8px',
+              background: '#000',
+              color: '#fff',
+              fontSize: '14px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              transition: 'transform 0.2s, box-shadow 0.2s',
+            }}
+            onMouseOver={(e) => {
+              e.currentTarget.style.transform = 'translateY(-1px)';
+              e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
+            }}
+            onMouseOut={(e) => {
+              e.currentTarget.style.transform = 'translateY(0)';
+              e.currentTarget.style.boxShadow = 'none';
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+            </svg>
+            Share on X
+          </button>
+
+          <button
+            onClick={handleCopyLink}
+            style={{
+              width: '100%',
+              padding: '12px 16px',
+              border: '1px solid #d2d2d7',
+              borderRadius: '8px',
+              background: '#fff',
+              color: '#1d1d1f',
+              fontSize: '14px',
+              fontWeight: 500,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+            Copy Verification Link
+          </button>
+
+          <button
+            onClick={onClose}
+            style={{
+              width: '100%',
+              padding: '10px',
+              border: 'none',
+              borderRadius: '8px',
+              background: 'transparent',
+              color: '#86868b',
+              fontSize: '13px',
+              cursor: 'pointer',
+            }}
+          >
+            Maybe Later
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

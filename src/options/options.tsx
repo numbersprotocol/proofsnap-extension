@@ -45,6 +45,24 @@ function WatermarkSettings({
       </div>
 
       <div className="setting-item">
+        <label htmlFor="timestampFormat">Timestamp format</label>
+        <select
+          id="timestampFormat"
+          value={settings.timestampFormat}
+          onChange={(e) => onSave({ timestampFormat: e.target.value as 'full' | 'compact' | 'time-only' })}
+          disabled={!settings.includeTimestamp}
+          className="select-input"
+        >
+          <option value="full">Full (Time + Date + Day)</option>
+          <option value="compact">Compact (Time + Short Date)</option>
+          <option value="time-only">Time Only</option>
+        </select>
+        <p className="setting-description">
+          Choose how much information to display
+        </p>
+      </div>
+
+      <div className="setting-item">
         <label htmlFor="timestampSize">Timestamp size</label>
         <select
           id="timestampSize"
@@ -59,6 +77,44 @@ function WatermarkSettings({
         </select>
         <p className="setting-description">
           Adjust the size of the timestamp watermark
+        </p>
+      </div>
+
+      <div className="setting-item">
+        <label htmlFor="timestampPosition">Timestamp position</label>
+        <select
+          id="timestampPosition"
+          value={settings.timestampPosition}
+          onChange={(e) => onSave({ timestampPosition: e.target.value as 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' })}
+          disabled={!settings.includeTimestamp}
+          className="select-input"
+        >
+          <option value="top-left">Top Left</option>
+          <option value="top-right">Top Right</option>
+          <option value="bottom-left">Bottom Left</option>
+          <option value="bottom-right">Bottom Right</option>
+        </select>
+        <p className="setting-description">
+          Choose where to place the timestamp on the screenshot
+        </p>
+      </div>
+
+      <div className="setting-item">
+        <label htmlFor="timestampOpacity">
+          Timestamp opacity: {Math.round((settings.timestampOpacity ?? 1) * 100)}%
+        </label>
+        <input
+          id="timestampOpacity"
+          type="range"
+          min="0"
+          max="100"
+          value={Math.round((settings.timestampOpacity ?? 1) * 100)}
+          onChange={(e) => onSave({ timestampOpacity: parseInt(e.target.value) / 100 })}
+          disabled={!settings.includeTimestamp}
+          className="range-input"
+        />
+        <p className="setting-description">
+          Adjust transparency (0% = invisible, 100% = fully visible)
         </p>
       </div>
     </section>
@@ -101,6 +157,92 @@ function WebsiteInfoSettings({
           Capture and store the URL, page title, and domain of the website where the snap was taken.
           This information will be included in the blockchain metadata for verification.
         </p>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * Location Settings Component
+ * Allows user to enable/disable geolocation capture
+ */
+function LocationSettings({
+  settings,
+  onSave,
+}: {
+  settings: StoredSettings;
+  onSave: (updates: Partial<StoredSettings>) => void;
+}) {
+  const [permissionStatus, setPermissionStatus] = useState<'granted' | 'denied' | 'prompt' | 'unknown'>('unknown');
+
+  useEffect(() => {
+    // Check geolocation permission status
+    if (navigator.permissions) {
+      navigator.permissions.query({ name: 'geolocation' }).then((result) => {
+        setPermissionStatus(result.state);
+        result.onchange = () => setPermissionStatus(result.state);
+      }).catch(() => {
+        setPermissionStatus('unknown');
+      });
+    }
+  }, []);
+
+  const handleEnableLocation = async (enabled: boolean) => {
+    if (enabled) {
+      // Request permission by triggering a geolocation request
+      try {
+        await new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 10000,
+          });
+        });
+        setPermissionStatus('granted');
+        onSave({ includeLocation: true });
+      } catch (error) {
+        setPermissionStatus('denied');
+        alert('Location permission was denied. Please enable it in your browser settings to use this feature.');
+      }
+    } else {
+      onSave({ includeLocation: false });
+    }
+  };
+
+  return (
+    <section className="settings-section">
+      <h2>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 8, verticalAlign: 'text-bottom' }} aria-hidden="true">
+          <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+          <circle cx="12" cy="10" r="3"></circle>
+        </svg>
+        Location
+      </h2>
+
+      <div className="setting-item">
+        <div className="setting-header">
+          <label htmlFor="includeLocation">Include location in metadata</label>
+          <input
+            id="includeLocation"
+            type="checkbox"
+            checked={settings.includeLocation}
+            onChange={(e) => handleEnableLocation(e.target.checked)}
+            className="toggle-switch"
+          />
+        </div>
+        <p className="setting-description">
+          Capture your current GPS coordinates when taking a snap.
+          This information is stored in the blockchain metadata for verification purposes and is not visible on the screenshot.
+        </p>
+        {permissionStatus === 'denied' && settings.includeLocation && (
+          <p className="setting-warning" style={{ color: '#ef4444', marginTop: '8px' }}>
+            ⚠️ Location permission is denied. Please enable it in your browser settings.
+          </p>
+        )}
+        {permissionStatus === 'granted' && settings.includeLocation && (
+          <p className="setting-success" style={{ color: '#22c55e', marginTop: '8px' }}>
+            ✓ Location permission granted
+          </p>
+        )}
       </div>
     </section>
   );
@@ -179,6 +321,88 @@ function CaptureSettings({
             Higher quality = larger file size
           </p>
         </div>
+      )}
+    </section>
+  );
+}
+
+/**
+ * Hunt Mode Settings Component
+ * Special sharing mode for AI Hunt events
+ */
+function HuntModeSettings({
+  settings,
+  onSave,
+}: {
+  settings: StoredSettings;
+  onSave: (updates: Partial<StoredSettings>) => void;
+}) {
+  return (
+    <section className="settings-section hunt-mode-section">
+      <h2>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 8, verticalAlign: 'text-bottom' }} aria-hidden="true">
+          <circle cx="12" cy="12" r="10"></circle>
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+          <line x1="2" y1="12" x2="22" y2="12"></line>
+        </svg>
+        🎯 Hunt Mode
+      </h2>
+
+      <div className="hunt-mode-banner">
+        <p>
+          <strong>AI Hunt Event!</strong> Enable Hunt Mode to get share buttons after each snap.
+          Share your ProofSnap captures on X to participate in the event!
+        </p>
+      </div>
+
+      <div className="setting-item">
+        <div className="setting-header">
+          <label htmlFor="huntModeEnabled">Enable Hunt Mode</label>
+          <input
+            id="huntModeEnabled"
+            type="checkbox"
+            checked={settings.huntModeEnabled}
+            onChange={(e) => onSave({ huntModeEnabled: e.target.checked })}
+            className="toggle-switch"
+          />
+        </div>
+        <p className="setting-description">
+          Show share buttons after each successful upload
+        </p>
+      </div>
+
+      {settings.huntModeEnabled && (
+        <>
+          <div className="setting-item">
+            <label htmlFor="huntModeMessage">Share message</label>
+            <input
+              id="huntModeMessage"
+              type="text"
+              value={settings.huntModeMessage}
+              onChange={(e) => onSave({ huntModeMessage: e.target.value })}
+              className="text-input"
+              placeholder="🎯 I spotted this!"
+            />
+            <p className="setting-description">
+              Custom message for your shares (appears before the link)
+            </p>
+          </div>
+
+          <div className="setting-item">
+            <label htmlFor="huntModeHashtags">Hashtags</label>
+            <input
+              id="huntModeHashtags"
+              type="text"
+              value={settings.huntModeHashtags}
+              onChange={(e) => onSave({ huntModeHashtags: e.target.value })}
+              className="text-input"
+              placeholder="#ProofSnapHunt #AIHunt"
+            />
+            <p className="setting-description">
+              Hashtags to include in your shares
+            </p>
+          </div>
+        </>
       )}
     </section>
   );
@@ -297,8 +521,10 @@ function OptionsApp() {
       </header>
 
       <div className="options-content">
+        <HuntModeSettings settings={settings} onSave={handleSaveSettings} />
         <WatermarkSettings settings={settings} onSave={handleSaveSettings} />
         <WebsiteInfoSettings settings={settings} onSave={handleSaveSettings} />
+        <LocationSettings settings={settings} onSave={handleSaveSettings} />
         <CaptureSettings settings={settings} onSave={handleSaveSettings} />
         <UploadSettings settings={settings} onSave={handleSaveSettings} />
 

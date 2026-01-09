@@ -13,6 +13,7 @@ export interface UploadProgress {
   progress: number; // 0-1
   status: 'uploading' | 'uploaded' | 'failed';
   error?: string;
+  nid?: string; // Numbers ID for uploaded assets
 }
 
 /**
@@ -322,13 +323,17 @@ export class UploadService {
    * Handle successful upload: update asset, clean up, and notify
    */
   private async handleUploadSuccess(asset: Asset, result: any): Promise<void> {
+    // The API returns 'id' which is the same as the nid/cid
+    const nid = result.id || result.cid || result.nid;
+    console.log('[UploadService] handleUploadSuccess called with nid:', nid);
+    
     // Update asset with uploaded status and metadata
     asset.status = 'uploaded';
     asset.metadata = {
       ...asset.metadata,
       uploadedAt: new Date().toISOString(),
       cid: result.cid,
-      nid: result.nid,
+      nid: nid,
       uploadProgress: 1,
     };
 
@@ -337,10 +342,35 @@ export class UploadService {
       metadata: asset.metadata,
     });
 
+    // Check if Hunt Mode is enabled and open share page
+    if (nid) {
+      try {
+        const settings = await this.metadataStorage.getSettings();
+        console.log('[Hunt Mode] Settings loaded:', { 
+          huntModeEnabled: settings.huntModeEnabled
+        });
+        
+        if (settings.huntModeEnabled) {
+          console.log('[Hunt Mode] Opening share page for nid:', nid);
+          // Open share page in new tab
+          const shareUrl = chrome.runtime.getURL(`share.html?nid=${nid}`);
+          console.log('[Hunt Mode] Share URL:', shareUrl);
+          await chrome.tabs.create({
+            url: shareUrl,
+            active: true,
+          });
+          console.log('[Hunt Mode] Tab created successfully');
+        }
+      } catch (error) {
+        console.error('[Hunt Mode] Error opening share page:', error);
+      }
+    }
+
     this.emitProgress({
       assetId: asset.id,
       progress: 1,
       status: 'uploaded',
+      nid: nid,
     });
 
     // Clean up: delete uploaded asset from IndexedDB to save disk space

@@ -324,3 +324,69 @@ body {
     font-size: 18px;
   }
 }
+
+/* Hunt Mode Section */
+.hunt-mode-section {
+  background: linear-gradient(135deg, rgba(236, 72, 153, 0.05) 0%, rgba(59, 130, 246, 0.05) 100%);
+  border-radius: 16px;
+  padding: 24px;
+  margin-bottom: 40px;
+  border: 1px solid rgba(236, 72, 153, 0.2);
+}
+
+.hunt-mode-section h2 {
+  color: #EC4899;
+}
+
+.hunt-badge {
+  background: linear-gradient(135deg, #EC4899 0%, #3B82F6 100%);
+  color: white;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 20px;
+  margin-left: 12px;
+}
+
+.hunt-mode-banner {
+  background: linear-gradient(135deg, rgba(236, 72, 153, 0.1) 0%, rgba(59, 130, 246, 0.1) 100%);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.hunt-mode-banner p {
+  font-size: 14px;
+  color: #1d1d1f;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.hunt-mode-banner strong {
+  color: #EC4899;
+}
+
+/* Text Input (for Hunt Mode) */
+.text-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #d2d2d7;
+  border-radius: 8px;
+  font-size: 14px;
+  background: white;
+  transition: border-color 0.2s;
+}
+
+.text-input:hover {
+  border-color: #a1a1a6;
+}
+
+.text-input:focus {
+  outline: none;
+  border-color: #EC4899;
+  box-shadow: 0 0 0 3px rgba(236, 72, 153, 0.1);
+}
+
+.text-input::placeholder {
+  color: #a1a1a6;
+}

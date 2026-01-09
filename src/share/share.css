@@ -1,0 +1,145 @@
+/**
+ * Share Page Styles
+ */
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', sans-serif;
+  background: linear-gradient(135deg, #EC4899 0%, #3B82F6 100%);
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.share-container {
+  background: white;
+  border-radius: 24px;
+  padding: 40px;
+  max-width: 420px;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 25px 80px rgba(0, 0, 0, 0.3);
+}
+
+.share-icon {
+  font-size: 64px;
+  margin-bottom: 20px;
+}
+
+.share-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1d1d1f;
+  margin-bottom: 12px;
+}
+
+.share-subtitle {
+  font-size: 16px;
+  color: #86868b;
+  margin-bottom: 32px;
+  line-height: 1.5;
+}
+
+.share-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.share-btn {
+  width: 100%;
+  padding: 16px 24px;
+  border: none;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.share-btn:hover {
+  transform: translateY(-2px);
+}
+
+.share-btn-x {
+  background: #000;
+  color: #fff;
+}
+
+.share-btn-x:hover {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+.share-btn-copy {
+  background: #f5f5f7;
+  color: #1d1d1f;
+  border: 1px solid #d2d2d7;
+}
+
+.share-btn-copy:hover {
+  background: #e5e5e7;
+}
+
+.share-btn-close {
+  background: transparent;
+  color: #86868b;
+  font-size: 14px;
+  font-weight: 500;
+  margin-top: 8px;
+}
+
+.share-btn-close:hover {
+  color: #1d1d1f;
+  transform: none;
+}
+
+.copied-toast {
+  position: fixed;
+  bottom: 30px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: #34c759;
+  color: white;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  opacity: 0;
+  transition: all 0.3s;
+  pointer-events: none;
+}
+
+.copied-toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.verify-link {
+  background: #f5f5f7;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 24px;
+  font-size: 12px;
+  color: #86868b;
+  word-break: break-all;
+}
+
+.verify-link a {
+  color: #3B82F6;
+  text-decoration: none;
+}
+
+.verify-link a:hover {
+  text-decoration: underline;
+}
