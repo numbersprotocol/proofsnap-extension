@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ProofSnap",
-  "version": "1.1.4",
+  "version": "1.1.5",
   "description": "Snap once. Prove forever. Turn your browser into a trust engine—sealing screenshots with cryptographic proof.",
   "permissions": [
     "activeTab",
