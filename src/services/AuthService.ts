@@ -134,8 +134,10 @@ export class AuthService {
               reject('Google Auth failed: malformed id_token');
               return;
             }
-            // Base64url → base64 → JSON
-            const payloadJson = atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'));
+            // Base64url → base64 (add padding, swap url-safe chars) → JSON
+            const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+            const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+            const payloadJson = atob(padded);
             const payload = JSON.parse(payloadJson) as Record<string, unknown>;
             if (payload['nonce'] !== nonce) {
               reject('Google Auth failed: nonce mismatch');

@@ -29,7 +29,7 @@ function validatePasswordStrength(password: string): string | null {
  * Returns a strength label and colour for a password.
  * Used to render the inline strength indicator in signup mode.
  */
-function getPasswordStrength(password: string): { label: string; color: string } | null {
+function getPasswordStrengthInfo(password: string): { label: string; color: string; widthPct: string } | null {
     if (!password) return null;
     let score = 0;
     if (password.length >= 8) score++;
@@ -38,10 +38,10 @@ function getPasswordStrength(password: string): { label: string; color: string }
     if (/[0-9]/.test(password)) score++;
     if (/[!@#$%^&*()\-_=+[\]{};:'",.<>?/\\|`~]/.test(password)) score++;
 
-    if (score <= 2) return { label: 'Weak', color: '#ef4444' };
-    if (score === 3) return { label: 'Fair', color: '#f59e0b' };
-    if (score === 4) return { label: 'Good', color: '#3b82f6' };
-    return { label: 'Strong', color: '#22c55e' };
+    if (score <= 2) return { label: 'Weak',   color: '#ef4444', widthPct: '25%'  };
+    if (score === 3) return { label: 'Fair',   color: '#f59e0b', widthPct: '50%'  };
+    if (score === 4) return { label: 'Good',   color: '#3b82f6', widthPct: '75%'  };
+                     return { label: 'Strong', color: '#22c55e', widthPct: '100%' };
 }
 
 const AuthForm: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
@@ -168,7 +168,7 @@ const AuthForm: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
         }
     };
 
-    const strengthInfo = !isLoginMode ? getPasswordStrength(password) : null;
+    const strengthInfo = !isLoginMode ? getPasswordStrengthInfo(password) : null;
     const isInCooldown = cooldownUntil !== null && Date.now() < cooldownUntil;
 
     return (
@@ -212,7 +212,7 @@ const AuthForm: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
                         <div className="password-strength-bar">
                             <div
                                 className="password-strength-fill"
-                                style={{ backgroundColor: strengthInfo.color, width: strengthInfo.label === 'Weak' ? '25%' : strengthInfo.label === 'Fair' ? '50%' : strengthInfo.label === 'Good' ? '75%' : '100%' }}
+                                style={{ backgroundColor: strengthInfo.color, width: strengthInfo.widthPct }}
                             />
                         </div>
                         <span className="password-strength-label" style={{ color: strengthInfo.color }}>
