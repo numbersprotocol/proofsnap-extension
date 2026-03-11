@@ -120,12 +120,33 @@ export class AuthService {
           const params = new URLSearchParams(url.hash.substring(1)); // remove leading #
           const idToken = params.get('id_token');
 
-          if (idToken) {
-            resolve(idToken);
-          } else {
+          if (!idToken) {
             console.error('No id_token found in response', responseUrl);
             reject('Failed to retrieve ID token from Google');
+            return;
           }
+
+          // Verify the nonce claim in the JWT payload to confirm the token
+          // was issued for this exact auth request (defense-in-depth).
+          try {
+            const parts = idToken.split('.');
+            if (parts.length !== 3) {
+              reject('Google Auth failed: malformed id_token');
+              return;
+            }
+            // Base64url → base64 → JSON
+            const payloadJson = atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'));
+            const payload = JSON.parse(payloadJson) as Record<string, unknown>;
+            if (payload['nonce'] !== nonce) {
+              reject('Google Auth failed: nonce mismatch');
+              return;
+            }
+          } catch {
+            reject('Google Auth failed: could not verify id_token');
+            return;
+          }
+
+          resolve(idToken);
         }
       );
     });

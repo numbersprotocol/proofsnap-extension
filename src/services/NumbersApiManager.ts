@@ -25,6 +25,13 @@ export class NumbersApiManager {
     // Initialize services with shared API client
     this.auth = new AuthService(this.apiClient);
     this.upload = new UploadService(this.apiClient, indexedDBService, storageService);
+
+    // Clear local auth state whenever the server returns 401 so the UI can
+    // prompt the user to log in again instead of failing silently.
+    this.apiClient.setOnUnauthenticated(() => {
+      console.warn('Received 401 response – clearing authentication');
+      this.clearAuth().catch(err => console.error('Failed to clear auth after 401:', err));
+    });
   }
 
   /**
