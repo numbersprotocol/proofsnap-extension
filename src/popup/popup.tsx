@@ -22,6 +22,22 @@ interface HuntModeConfig {
 }
 
 /**
+ * Message payload types for chrome.runtime.onMessage
+ */
+interface UploadProgressPayload {
+  assetId: string;
+  progress: number;
+  status: 'uploading' | 'uploaded' | 'failed';
+  nid?: string;
+  error?: string;
+}
+
+interface ExtensionMessage {
+  type: string;
+  payload?: UploadProgressPayload;
+}
+
+/**
  * Main Popup Component
  */
 function PopupApp() {
@@ -39,6 +55,8 @@ function PopupApp() {
     asset: Asset;
     autoUpload: boolean;
   } | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   useEffect(() => {
     loadInitialData();
@@ -82,13 +100,17 @@ function PopupApp() {
         const pendingNid = await storageService.getAndClearPendingShare();
         console.log('[Hunt Mode Popup] Pending NID:', pendingNid);
         if (pendingNid) {
+          // The original asset was deleted after upload. Only nid is needed by SharePromptModal.
+          // type/mimeType are required by the Asset interface but unused by the modal.
           setSharePromptAsset({
             id: 'pending',
             uri: '',
+            type: 'image',
+            mimeType: 'image/png',
             status: 'uploaded',
-            createdAt: new Date().toISOString(),
+            createdAt: Date.now(),
             metadata: { nid: pendingNid },
-          } as any);
+          });
         }
       }
 
@@ -131,11 +153,11 @@ function PopupApp() {
         console.log('Screenshot cancelled');
       } else {
         console.error('Capture failed:', response.error);
-        alert('Failed to capture screenshot: ' + response.error);
+        setErrorMessage('Failed to capture screenshot: ' + response.error);
       }
     } catch (error) {
       console.error('Capture error:', error);
-      alert('Failed to capture screenshot');
+      setErrorMessage('Failed to capture screenshot');
     } finally {
       setCapturing(false);
     }
@@ -152,11 +174,11 @@ function PopupApp() {
         console.log('Asset queued for upload');
         // No need to reload - UPLOAD_PROGRESS listener will handle it
       } else {
-        alert('Failed to queue upload: ' + response.error);
+        setErrorMessage('Failed to queue upload: ' + response.error);
       }
     } catch (error) {
       console.error('Upload error:', error);
-      alert('Failed to upload asset');
+      setErrorMessage('Failed to upload asset');
     }
   }
 
@@ -228,20 +250,23 @@ function PopupApp() {
   }
 
   async function handleLogout() {
-    if (confirm('Are you sure you want to logout?')) {
-      const numbersApi = await getNumbersApi();
-      await numbersApi.clearAuth();
-      setIsAuthenticated(false);
-      setUsername('');
-      setEmail('');
-      // Force reload to switch to login view
-      window.location.reload();
-    }
+    setShowLogoutConfirm(true);
+  }
+
+  async function confirmLogout() {
+    setShowLogoutConfirm(false);
+    const numbersApi = await getNumbersApi();
+    await numbersApi.clearAuth();
+    setIsAuthenticated(false);
+    setUsername('');
+    setEmail('');
+    // Force reload to switch to login view
+    window.location.reload();
   }
 
   // Listen for upload progress updates
   useEffect(() => {
-    const handleMessage = async (message: any) => {
+    const handleMessage = async (message: ExtensionMessage) => {
       if (message.type === 'UPLOAD_PROGRESS') {
         const payload = message.payload;
         
@@ -252,14 +277,17 @@ function PopupApp() {
 
         // In Hunt Mode, show share prompt when upload succeeds
         if (huntMode.enabled && payload?.status === 'uploaded' && payload?.nid) {
-          // Asset is deleted after upload, so create a minimal object for share prompt
+          // Asset is deleted after upload; only nid is needed by SharePromptModal.
+          // type/mimeType are required by the Asset interface but unused by the modal.
           setSharePromptAsset({
             id: payload.assetId,
-            uri: '', // We don't have the image anymore, modal will handle this
+            uri: '',
+            type: 'image',
+            mimeType: 'image/png',
             status: 'uploaded',
-            createdAt: new Date().toISOString(),
+            createdAt: Date.now(),
             metadata: { nid: payload.nid },
-          } as any);
+          });
         }
       }
     };
@@ -302,6 +330,18 @@ function PopupApp() {
         onLogout={handleLogout}
         onOpenOptions={openOptions}
       />
+
+      {errorMessage && (
+        <ErrorToast message={errorMessage} onClose={() => setErrorMessage(null)} />
+      )}
+
+      {showLogoutConfirm && (
+        <ConfirmDialog
+          message="Are you sure you want to logout?"
+          onConfirm={confirmLogout}
+          onCancel={() => setShowLogoutConfirm(false)}
+        />
+      )}
 
       {showInsufficientCreditsNotification && (
         <InsufficientCreditsNotification
@@ -360,14 +400,14 @@ function PopupHeader({
   return (
     <div className="header">
       <h1>ProofSnap</h1>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+      <div className="header-actions">
         {/* Account Details */}
         <div className="account-details">
           <span className="account-username">{username || 'User'}</span>
           {email && <span className="account-email" title={email}>{email}</span>}
         </div>
 
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div className="header-buttons">
           <button
             className="icon-button"
             onClick={onLogout}
@@ -414,36 +454,12 @@ function CaptureSection({
   return (
     <div className="capture-section">
       {/* Capture Mode Toggle */}
-      <div className="capture-mode-toggle" style={{ 
-        display: 'flex', 
-        gap: '4px', 
-        marginBottom: '12px',
-        background: 'rgba(0, 0, 0, 0.1)',
-        borderRadius: '8px',
-        padding: '4px'
-      }}>
+      <div className="capture-mode-toggle">
         <button
           className={`mode-button ${captureMode === 'visible' ? 'active' : ''}`}
           onClick={() => onCaptureMode('visible')}
           disabled={capturing}
           title="Capture visible area"
-          style={{
-            flex: 1,
-            padding: '8px 12px',
-            border: 'none',
-            borderRadius: '6px',
-            cursor: 'pointer',
-            fontSize: '12px',
-            fontWeight: 500,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '6px',
-            background: captureMode === 'visible' ? 'white' : 'transparent',
-            color: captureMode === 'visible' ? '#1a1a1a' : '#666',
-            boxShadow: captureMode === 'visible' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-            transition: 'all 0.2s ease'
-          }}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
@@ -457,23 +473,6 @@ function CaptureSection({
           onClick={() => onCaptureMode('selection')}
           disabled={capturing}
           title="Select area to capture"
-          style={{
-            flex: 1,
-            padding: '8px 12px',
-            border: 'none',
-            borderRadius: '6px',
-            cursor: 'pointer',
-            fontSize: '12px',
-            fontWeight: 500,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '6px',
-            background: captureMode === 'selection' ? 'white' : 'transparent',
-            color: captureMode === 'selection' ? '#1a1a1a' : '#666',
-            boxShadow: captureMode === 'selection' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-            transition: 'all 0.2s ease'
-          }}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M5 3v4M3 5h4M21 5h-4M19 3v4M5 21v-4M3 19h4M21 19h-4M19 21v-4"></path>
@@ -489,10 +488,10 @@ function CaptureSection({
         disabled={capturing}
         aria-label="Capture screenshot"
       >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+        <div className="capture-button-content">
           {capturing ? (
             <>
-              <span className="spinner-small" style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.3)', borderTop: '2px solid white', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></span>
+              <span className="spinner-small"></span>
               Snapping...
             </>
           ) : (
@@ -522,6 +521,17 @@ function AssetList({
   onUpload: (id: string) => void;
   huntMode: HuntModeConfig;
 }) {
+  const PAGE_SIZE = 6;
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+
+  // Reset pagination when assets change (e.g. after a new capture)
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [assets.length]);
+
+  const visibleAssets = assets.slice(0, visibleCount);
+  const hasMore = assets.length > visibleCount;
+
   return (
     <div className="content">
       <div className="section-header">
@@ -535,11 +545,21 @@ function AssetList({
           <p className="hint">Assets appear here when captured. Successful uploads are automatically removed (view them on your dashboard). Failed ones stay visible - click to retry.</p>
         </div>
       ) : (
-        <div className="asset-grid">
-          {assets.slice(0, 6).map((asset) => (
-            <AssetThumbnail key={asset.id} asset={asset} onUpload={onUpload} huntMode={huntMode} />
-          ))}
-        </div>
+        <>
+          <div className="asset-grid">
+            {visibleAssets.map((asset) => (
+              <AssetThumbnail key={asset.id} asset={asset} onUpload={onUpload} huntMode={huntMode} />
+            ))}
+          </div>
+          {hasMore && (
+            <button
+              className="show-more-button"
+              onClick={() => setVisibleCount(c => c + PAGE_SIZE)}
+            >
+              Show more ({assets.length - visibleCount} remaining)
+            </button>
+          )}
+        </>
       )}
     </div>
   );
@@ -652,7 +672,7 @@ function AssetThumbnail({ asset, onUpload, huntMode }: { asset: Asset; onUpload?
             try {
               const hostname = new URL(asset.sourceWebsite.url).hostname;
               return (
-                <div className="asset-website" title={asset.sourceWebsite.url} style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                <div className="asset-website asset-website-row" title={asset.sourceWebsite.url}>
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <circle cx="12" cy="12" r="10"></circle>
                     <line x1="2" y1="12" x2="22" y2="12"></line>
@@ -667,10 +687,10 @@ function AssetThumbnail({ asset, onUpload, huntMode }: { asset: Asset; onUpload?
           })()}
         </div>
         {asset.status === 'uploaded' && asset.metadata?.nid ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <div className="asset-status-col">
             <div
               className="asset-status blockchain-link"
-              style={{ backgroundColor: statusColors[asset.status], display: 'flex', alignItems: 'center', gap: '4px' }}
+              style={{ backgroundColor: statusColors[asset.status] }}
               onClick={handleViewOnBlockchain}
               title="View on blockchain"
             >
@@ -683,26 +703,11 @@ function AssetThumbnail({ asset, onUpload, huntMode }: { asset: Asset; onUpload?
             </div>
             {/* Hunt Mode share buttons */}
             {huntMode?.enabled && (
-              <div className="hunt-share-buttons" style={{ display: 'flex', gap: '4px' }}>
+              <div className="hunt-share-buttons">
                 <button
                   className="share-btn share-x"
                   onClick={handleShareToX}
                   title="Share on X"
-                  style={{
-                    flex: 1,
-                    padding: '4px 6px',
-                    border: 'none',
-                    borderRadius: '4px',
-                    background: '#000',
-                    color: '#fff',
-                    fontSize: '10px',
-                    fontWeight: 500,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '3px',
-                  }}
                 >
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                     <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
@@ -713,18 +718,6 @@ function AssetThumbnail({ asset, onUpload, huntMode }: { asset: Asset; onUpload?
                   className="share-btn share-copy"
                   onClick={handleCopyLink}
                   title="Copy link"
-                  style={{
-                    padding: '4px 6px',
-                    border: 'none',
-                    borderRadius: '4px',
-                    background: '#e5e5e7',
-                    color: '#1d1d1f',
-                    fontSize: '10px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
                 >
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
@@ -737,7 +730,7 @@ function AssetThumbnail({ asset, onUpload, huntMode }: { asset: Asset; onUpload?
         ) : (
           <div
             className="asset-status"
-            style={{ backgroundColor: statusColors[asset.status] || '#808080', display: 'flex', alignItems: 'center', gap: '4px' }}
+            style={{ backgroundColor: statusColors[asset.status] || '#808080' }}
             onClick={handleUploadClick}
             title={
               asset.status === 'draft' ? 'Click to upload' :
@@ -756,12 +749,9 @@ function AssetThumbnail({ asset, onUpload, huntMode }: { asset: Asset; onUpload?
           </div>
         )}
       </div>
-      {asset.status === 'uploading' && asset.metadata?.uploadProgress && (
+      {asset.status === 'uploading' && (
         <div className="upload-progress">
-          <div
-            className="upload-progress-bar"
-            style={{ width: `${(asset.metadata.uploadProgress * 100)}%` }}
-          />
+          <div className="upload-progress-bar" />
         </div>
       )}
     </div>
@@ -882,120 +872,30 @@ function SharePromptModal({
   };
 
   return (
-    <div className="share-modal-overlay" style={{
-      position: 'fixed',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      background: 'rgba(0, 0, 0, 0.6)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      zIndex: 1000,
-      padding: '20px',
-    }}>
-      <div className="share-modal" style={{
-        background: 'white',
-        borderRadius: '16px',
-        padding: '24px',
-        maxWidth: '300px',
-        width: '100%',
-        textAlign: 'center',
-        boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
-      }}>
-        <div style={{ marginBottom: '16px' }}>
-          <span style={{ fontSize: '48px' }}>🎯</span>
-        </div>
-        <h3 style={{
-          margin: '0 0 8px 0',
-          fontSize: '18px',
-          fontWeight: 600,
-          color: '#1d1d1f',
-        }}>
-          Snap Verified!
-        </h3>
-        <p style={{
-          margin: '0 0 20px 0',
-          fontSize: '14px',
-          color: '#86868b',
-          lineHeight: 1.5,
-        }}>
+    <div className="share-modal-overlay">
+      <div className="share-modal">
+        <div className="share-modal-emoji">🎯</div>
+        <h3 className="share-modal-title">Snap Verified!</h3>
+        <p className="share-modal-description">
           Share your verified snap on X to participate in the AI Hunt event!
         </p>
 
         {/* Preview image - only show if we have it */}
         {asset.uri && (
-          <div style={{
-            marginBottom: '16px',
-            borderRadius: '8px',
-            overflow: 'hidden',
-            border: '1px solid #e5e5e7',
-          }}>
-            <img
-              src={asset.uri}
-              alt="Screenshot"
-              style={{
-                width: '100%',
-                height: '80px',
-                objectFit: 'cover',
-              }}
-            />
+          <div className="share-modal-preview">
+            <img src={asset.uri} alt="Screenshot" />
           </div>
         )}
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          <button
-            onClick={handleShareToX}
-            style={{
-              width: '100%',
-              padding: '12px 16px',
-              border: 'none',
-              borderRadius: '8px',
-              background: '#000',
-              color: '#fff',
-              fontSize: '14px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '8px',
-              transition: 'transform 0.2s, box-shadow 0.2s',
-            }}
-            onMouseOver={(e) => {
-              e.currentTarget.style.transform = 'translateY(-1px)';
-              e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
-            }}
-            onMouseOut={(e) => {
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = 'none';
-            }}
-          >
+        <div className="share-modal-actions">
+          <button className="share-modal-btn-x" onClick={handleShareToX}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
               <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
             </svg>
             Share on X
           </button>
 
-          <button
-            onClick={handleCopyLink}
-            style={{
-              width: '100%',
-              padding: '12px 16px',
-              border: '1px solid #d2d2d7',
-              borderRadius: '8px',
-              background: '#fff',
-              color: '#1d1d1f',
-              fontSize: '14px',
-              fontWeight: 500,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '8px',
-            }}
-          >
+          <button className="share-modal-btn-copy" onClick={handleCopyLink}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
               <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
@@ -1003,20 +903,55 @@ function SharePromptModal({
             Copy Verification Link
           </button>
 
-          <button
-            onClick={onClose}
-            style={{
-              width: '100%',
-              padding: '10px',
-              border: 'none',
-              borderRadius: '8px',
-              background: 'transparent',
-              color: '#86868b',
-              fontSize: '13px',
-              cursor: 'pointer',
-            }}
-          >
+          <button className="share-modal-btn-dismiss" onClick={onClose}>
             Maybe Later
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Error Toast Component
+ * Replaces native alert() dialogs for non-blocking error feedback
+ */
+function ErrorToast({ message, onClose }: { message: string; onClose: () => void }) {
+  return (
+    <div className="error-toast" role="alert">
+      <span className="error-toast-message">{message}</span>
+      <button className="error-toast-close" onClick={onClose} aria-label="Dismiss error">
+        ✕
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Confirm Dialog Component
+ * Replaces native confirm() dialogs with an inline modal
+ */
+function ConfirmDialog({
+  message,
+  onConfirm,
+  onCancel,
+}: {
+  message: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="notification-overlay">
+      <div className="notification-card confirm-dialog">
+        <div className="notification-body">
+          <p>{message}</p>
+        </div>
+        <div className="notification-actions">
+          <button className="primary-button confirm-dialog-confirm" onClick={onConfirm}>
+            Logout
+          </button>
+          <button className="secondary-button" onClick={onCancel}>
+            Cancel
           </button>
         </div>
       </div>

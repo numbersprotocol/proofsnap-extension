@@ -27,7 +27,7 @@
     },
 
     /* Extension specific */
-    "types": ["chrome", "vite/client"]
+    "types": ["chrome", "vite/client", "vitest/globals"]
   },
   "include": ["src"]
 }

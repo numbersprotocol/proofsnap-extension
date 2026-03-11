@@ -6,8 +6,8 @@
 export interface RequestConfig {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   headers?: Record<string, string>;
-  body?: any;
-  params?: Record<string, any>;
+  body?: unknown;
+  params?: Record<string, unknown>;
 }
 
 export interface ApiClientConfig {
@@ -20,9 +20,9 @@ export interface ApiClientConfig {
  */
 export class ApiError extends Error {
   statusCode: number;
-  data?: any;
+  data?: unknown;
 
-  constructor(message: string, statusCode: number, data?: any) {
+  constructor(message: string, statusCode: number, data?: unknown) {
     super(message);
     this.name = 'ApiError';
     this.statusCode = statusCode;
@@ -109,7 +109,8 @@ export class ApiClient {
       }
     });
 
-    return `${url}?${searchParams.toString()}`;
+    const queryString = searchParams.toString();
+    return queryString ? `${url}?${queryString}` : url;
   }
 
   /**
@@ -126,14 +127,17 @@ export class ApiClient {
     const url = this.buildUrl(endpoint, params);
 
     // Handle FormData for file uploads
-    let requestBody: any = body;
+    let requestBody: BodyInit | undefined;
     const requestHeaders = { ...headers };
 
     if (body instanceof FormData) {
       // Remove Content-Type header to let browser set it with boundary
       delete requestHeaders['Content-Type'];
+      requestBody = body;
     } else if (body && typeof body === 'object') {
       requestBody = JSON.stringify(body);
+    } else if (typeof body === 'string') {
+      requestBody = body;
     }
 
     try {
@@ -178,7 +182,7 @@ export class ApiClient {
         throw error;
       }
 
-      const err = error as any;
+      const err = error instanceof Error ? error : new Error('Unknown error');
       if (err.name === 'AbortError') {
         throw new ApiError('Request timeout', 408);
       }
@@ -221,7 +225,7 @@ export class ApiClient {
   /**
    * GET request with token authentication only
    */
-  async getWithAuth<T>(endpoint: string, params?: Record<string, any>): Promise<T> {
+  async getWithAuth<T>(endpoint: string, params?: Record<string, unknown>): Promise<T> {
     return this.requestWithAuth<T>(endpoint, {
       method: 'GET',
       params
@@ -231,7 +235,7 @@ export class ApiClient {
   /**
    * POST request with token authentication only
    */
-  async postWithAuth<T>(endpoint: string, body?: any): Promise<T> {
+  async postWithAuth<T>(endpoint: string, body?: unknown): Promise<T> {
     return this.requestWithAuth<T>(endpoint, {
       method: 'POST',
       body
@@ -241,7 +245,7 @@ export class ApiClient {
   /**
    * PUT request with token authentication only
    */
-  async putWithAuth<T>(endpoint: string, body?: any): Promise<T> {
+  async putWithAuth<T>(endpoint: string, body?: unknown): Promise<T> {
     return this.requestWithAuth<T>(endpoint, {
       method: 'PUT',
       body
@@ -251,7 +255,7 @@ export class ApiClient {
   /**
    * PATCH request with token authentication only
    */
-  async patchWithAuth<T>(endpoint: string, body?: any): Promise<T> {
+  async patchWithAuth<T>(endpoint: string, body?: unknown): Promise<T> {
     return this.requestWithAuth<T>(endpoint, {
       method: 'PATCH',
       body
@@ -261,7 +265,7 @@ export class ApiClient {
   /**
    * DELETE request with token authentication only
    */
-  async deleteWithAuth<T>(endpoint: string, params?: Record<string, any>): Promise<T> {
+  async deleteWithAuth<T>(endpoint: string, params?: Record<string, unknown>): Promise<T> {
     return this.requestWithAuth<T>(endpoint, {
       method: 'DELETE',
       params
@@ -275,7 +279,7 @@ export class ApiClient {
   /**
    * GET request for public endpoints
    */
-  async getPublic<T>(endpoint: string, params?: Record<string, any>): Promise<T> {
+  async getPublic<T>(endpoint: string, params?: Record<string, unknown>): Promise<T> {
     return this.requestPublic<T>(endpoint, {
       method: 'GET',
       params
@@ -285,7 +289,7 @@ export class ApiClient {
   /**
    * POST request for public endpoints
    */
-  async postPublic<T>(endpoint: string, body?: any): Promise<T> {
+  async postPublic<T>(endpoint: string, body?: unknown): Promise<T> {
     return this.requestPublic<T>(endpoint, {
       method: 'POST',
       body

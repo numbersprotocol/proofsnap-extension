@@ -17,6 +17,16 @@ export interface UploadProgress {
 }
 
 /**
+ * Shape of the Numbers Protocol API response when uploading an asset
+ */
+export interface UploadApiResult {
+  id?: string;
+  cid?: string;
+  nid?: string;
+  [key: string]: unknown;
+}
+
+/**
  * Browser-compatible Upload Service
  */
 export class UploadService {
@@ -234,22 +244,11 @@ export class UploadService {
    */
   private async uploadAsset(asset: Asset): Promise<void> {
     console.log('Starting upload for asset:', asset.id);
-
     await this.updateAssetStatusToUploading(asset);
-    const progressInterval = this.startProgressSimulation(asset);
-
-    try {
-      const formData = await this.prepareUploadFormData(asset);
-      const result = await this.apiClient.postWithAuth<any>('/assets/', formData);
-
-      clearInterval(progressInterval);
-      console.log('Upload successful:', result);
-
-      await this.handleUploadSuccess(asset, result);
-    } catch (error) {
-      clearInterval(progressInterval);
-      throw error;
-    }
+    const formData = await this.prepareUploadFormData(asset);
+    const result = await this.apiClient.postWithAuth<UploadApiResult>('/assets/', formData);
+    console.log('Upload successful:', result);
+    await this.handleUploadSuccess(asset, result);
   }
 
   /**
@@ -276,24 +275,6 @@ export class UploadService {
       progress: 0,
       status: 'uploading',
     });
-  }
-
-  /**
-   * Start simulating progress updates for an uploading asset
-   */
-  private startProgressSimulation(asset: Asset): ReturnType<typeof setInterval> {
-    return setInterval(() => {
-      const currentProgress = asset.metadata?.uploadProgress || 0;
-      if (currentProgress < 0.9) {
-        const newProgress = currentProgress + 0.1;
-        asset.metadata = { ...asset.metadata, uploadProgress: newProgress };
-        this.emitProgress({
-          assetId: asset.id,
-          progress: newProgress,
-          status: 'uploading',
-        });
-      }
-    }, 500);
   }
 
   /**
@@ -325,7 +306,7 @@ export class UploadService {
   /**
    * Handle successful upload: update asset, clean up, and notify
    */
-  private async handleUploadSuccess(asset: Asset, result: any): Promise<void> {
+  private async handleUploadSuccess(asset: Asset, result: UploadApiResult): Promise<void> {
     // The API returns 'id' which is the same as the nid/cid
     const nid = result.id || result.cid || result.nid;
     console.log('[UploadService] handleUploadSuccess called with nid:', nid);
@@ -387,8 +368,8 @@ export class UploadService {
   /**
    * Handle upload error
    */
-  private async handleUploadError(asset: Asset, error: any): Promise<void> {
-    const errorMessage = error?.message || 'Upload failed';
+  private async handleUploadError(asset: Asset, error: unknown): Promise<void> {
+    const errorMessage = error instanceof Error ? error.message : 'Upload failed';
     
     // Check for insufficient balance
     let errorType;
@@ -426,13 +407,17 @@ export class UploadService {
   /**
    * Check if error is due to insufficient balance
    */
-  private isInsufficientBalanceError(error: any): boolean {
-    if (error?.data?.error?.type === 'asset_commit_insufficient_fund') {
-      return true;
+  private isInsufficientBalanceError(error: unknown): boolean {
+    if (error instanceof Error) {
+      const apiError = error as { data?: { error?: { type?: string } } };
+      if (apiError.data?.error?.type === 'asset_commit_insufficient_fund') {
+        return true;
+      }
+      const message = error.message.toLowerCase();
+      return message.includes('insufficient') &&
+             (message.includes('fund') || message.includes('balance') || message.includes('credit'));
     }
-    const message = error?.message?.toLowerCase() || '';
-    return message.includes('insufficient') &&
-           (message.includes('fund') || message.includes('balance') || message.includes('credit'));
+    return false;
   }
 
   /**
@@ -447,7 +432,7 @@ export class UploadService {
    * Create signed metadata for upload
    */
   private createSignedMetadata(asset: Asset): string {
-    const metadata: any = {
+    const metadata: Record<string, unknown> = {
       spec_version: '2.0.0',
       recorder: 'ProofSnap Browser Extension',
       created_at: asset.createdAt,
