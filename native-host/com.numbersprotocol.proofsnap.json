@@ -1,9 +1,0 @@
-{
-  "name": "com.numbersprotocol.proofsnap",
-  "description": "ProofSnap Native Messaging Host - HTTP trigger for screenshot capture",
-  "path": "PLACEHOLDER_PATH",
-  "type": "stdio",
-  "allowed_origins": [
-    "chrome-extension://PLACEHOLDER_EXTENSION_ID/"
-  ]
-}

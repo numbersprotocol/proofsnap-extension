@@ -17,21 +17,18 @@ Endpoints:
 
 import asyncio
 import json
+import sys
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Set
 
-# Try to import websockets, install if not available
 try:
     import websockets
     from websockets.server import serve
 except ImportError:
-    import subprocess
-    import sys
-    print("Installing websockets package...")
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "websockets"])
-    import websockets
-    from websockets.server import serve
+    print("ERROR: 'websockets' package is required. Install it with:")
+    print("  pip install websockets")
+    sys.exit(1)
 
 # Configuration
 HTTP_PORT = 19999
@@ -45,27 +42,18 @@ event_loop = None
 
 class CaptureRequestHandler(BaseHTTPRequestHandler):
     """Handle HTTP requests for capture triggers"""
-    
+
     def log_message(self, format, *args):
         """Custom logging"""
         print(f"[HTTP] {args[0]}")
-    
+
     def _send_json_response(self, status_code, data):
         """Send JSON response"""
         self.send_response(status_code)
         self.send_header('Content-Type', 'application/json')
-        self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
         self.wfile.write(json.dumps(data).encode('utf-8'))
-    
-    def do_OPTIONS(self):
-        """Handle CORS preflight"""
-        self.send_response(200)
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
-        self.end_headers()
-    
+
     def do_GET(self):
         """Handle GET requests"""
         if self.path == '/status':
@@ -78,7 +66,7 @@ class CaptureRequestHandler(BaseHTTPRequestHandler):
             })
         else:
             self._send_json_response(404, {'error': 'Not found'})
-    
+
     def do_POST(self):
         """Handle POST requests"""
         # Verify request is from localhost
@@ -86,7 +74,7 @@ class CaptureRequestHandler(BaseHTTPRequestHandler):
         if client_ip not in ('127.0.0.1', '::1', 'localhost'):
             self._send_json_response(403, {'error': 'Forbidden: localhost only'})
             return
-        
+
         if self.path == '/capture':
             if not connected_clients:
                 self._send_json_response(503, {
@@ -94,23 +82,23 @@ class CaptureRequestHandler(BaseHTTPRequestHandler):
                     'error': 'No extension connected. Make sure ProofSnap extension is running.'
                 })
                 return
-            
+
             # Send capture command to all connected extensions via WebSocket
             message = json.dumps({'action': 'capture', 'mode': 'visible'})
-            
+
             # Schedule the async broadcast on the event loop
             if event_loop:
                 asyncio.run_coroutine_threadsafe(
                     broadcast_message(message),
                     event_loop
                 )
-            
+
             self._send_json_response(200, {
                 'success': True,
                 'message': 'Capture command sent to extension',
                 'clients': len(connected_clients)
             })
-        
+
         elif self.path == '/capture/selection':
             if not connected_clients:
                 self._send_json_response(503, {
@@ -118,19 +106,19 @@ class CaptureRequestHandler(BaseHTTPRequestHandler):
                     'error': 'No extension connected'
                 })
                 return
-            
+
             message = json.dumps({'action': 'capture', 'mode': 'selection'})
             if event_loop:
                 asyncio.run_coroutine_threadsafe(
                     broadcast_message(message),
                     event_loop
                 )
-            
+
             self._send_json_response(200, {
                 'success': True,
                 'message': 'Selection capture command sent'
             })
-        
+
         else:
             self._send_json_response(404, {'error': 'Not found'})
 
@@ -149,29 +137,29 @@ async def websocket_handler(websocket):
     connected_clients.add(websocket)
     client_id = id(websocket)
     print(f"[WS] Extension connected (id: {client_id}, total: {len(connected_clients)})")
-    
+
     try:
         # Send welcome message
         await websocket.send(json.dumps({
             'type': 'connected',
             'message': 'ProofSnap trigger server ready'
         }))
-        
+
         # Keep connection alive and handle any messages from extension
         async for message in websocket:
             try:
                 data = json.loads(message)
                 print(f"[WS] Received from extension: {data}")
-                
+
                 # Handle ping/pong for keepalive
                 if data.get('type') == 'ping':
                     await websocket.send(json.dumps({'type': 'pong'}))
                 elif data.get('type') == 'capture_result':
                     print(f"[WS] Capture result: {data.get('result')}")
-                    
+
             except json.JSONDecodeError:
                 print(f"[WS] Invalid JSON received: {message}")
-                
+
     except websockets.exceptions.ConnectionClosed:
         pass
     finally:
@@ -189,8 +177,8 @@ def run_http_server():
 async def main():
     """Main entry point"""
     global event_loop
-    event_loop = asyncio.get_event_loop()
-    
+    event_loop = asyncio.get_running_loop()
+
     print("=" * 50)
     print("ProofSnap Trigger Server")
     print("=" * 50)
@@ -203,11 +191,11 @@ async def main():
     print("")
     print("Waiting for ProofSnap extension to connect...")
     print("=" * 50)
-    
+
     # Start HTTP server in background thread
     http_thread = threading.Thread(target=run_http_server, daemon=True)
     http_thread.start()
-    
+
     # Start WebSocket server
     async with serve(websocket_handler, HOST, WS_PORT):
         await asyncio.Future()  # Run forever
@@ -218,4 +206,3 @@ if __name__ == '__main__':
         asyncio.run(main())
     except KeyboardInterrupt:
         print("\nShutting down...")
-
