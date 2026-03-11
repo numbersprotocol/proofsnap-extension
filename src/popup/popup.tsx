@@ -86,7 +86,7 @@ function PopupApp() {
             id: 'pending',
             uri: '',
             status: 'uploaded',
-            createdAt: new Date().toISOString(),
+            createdAt: Date.now(),
             metadata: { nid: pendingNid },
           } as any);
         }
@@ -257,7 +257,7 @@ function PopupApp() {
             id: payload.assetId,
             uri: '', // We don't have the image anymore, modal will handle this
             status: 'uploaded',
-            createdAt: new Date().toISOString(),
+            createdAt: Date.now(),
             metadata: { nid: payload.nid },
           } as any);
         }

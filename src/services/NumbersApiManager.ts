@@ -147,13 +147,21 @@ export class NumbersApiManager {
   }
 }
 
-// Lazy singleton pattern
-let instance: NumbersApiManager | null = null;
+// Promise-based singleton to prevent duplicate initialization on concurrent calls
+let initPromise: Promise<NumbersApiManager> | null = null;
 
-export async function getNumbersApi(): Promise<NumbersApiManager> {
-  if (!instance) {
-    instance = new NumbersApiManager();
-    await instance.initialize();
+/**
+ * Returns the shared NumbersApiManager instance.
+ * Uses a cached promise so that concurrent callers all await the same
+ * initialization, eliminating the race condition of the old instance-based pattern.
+ */
+export function getNumbersApi(): Promise<NumbersApiManager> {
+  if (!initPromise) {
+    initPromise = (async () => {
+      const inst = new NumbersApiManager();
+      await inst.initialize();
+      return inst;
+    })();
   }
-  return instance;
+  return initPromise;
 }

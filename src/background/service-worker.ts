@@ -200,6 +200,130 @@ async function handleSelectionCapture(tab: chrome.tabs.Tab): Promise<any> {
 }
 
 /**
+ * Get geolocation and source website metadata as capture dependencies
+ */
+async function getCaptureDependencies(
+  tab: chrome.tabs.Tab,
+  settings: Awaited<ReturnType<typeof metadataStorage.getSettings>>
+): Promise<{
+  gpsLocation: { latitude: number; longitude: number; accuracy: number; timestamp: number } | undefined;
+  sourceWebsite: { url: string; title: string } | undefined;
+}> {
+  // Get location if enabled via offscreen document
+  let gpsLocation: { latitude: number; longitude: number; accuracy: number; timestamp: number } | undefined = undefined;
+  if (settings.includeLocation) {
+    try {
+      await ensureOffscreenDocument();
+      const locationResponse = await chrome.runtime.sendMessage({
+        type: 'GET_GEOLOCATION',
+      });
+      if (locationResponse.success && locationResponse.data) {
+        gpsLocation = locationResponse.data;
+        console.log('✅ Geolocation captured:', gpsLocation!.latitude, gpsLocation!.longitude);
+      } else {
+        console.warn('⚠️ Could not get geolocation:', locationResponse.error || 'Permission denied or unavailable');
+      }
+    } catch (error) {
+      console.warn('⚠️ Geolocation error:', error);
+      // Continue without location
+    }
+  }
+
+  // Capture website metadata if enabled
+  let sourceWebsite: { url: string; title: string } | undefined = undefined;
+  if (settings.includeWebsiteInfo && tab.url && tab.title) {
+    try {
+      const url = new URL(tab.url);
+      sourceWebsite = {
+        url: tab.url,
+        title: tab.title,
+      };
+      console.log('✅ Website metadata captured:', url.hostname);
+    } catch (error) {
+      console.warn('Failed to parse URL:', error);
+    }
+  }
+
+  return { gpsLocation, sourceWebsite };
+}
+
+/**
+ * Create and store a screenshot asset in IndexedDB
+ */
+async function createAndStoreAsset(
+  dataUrl: string,
+  captureTime: Date,
+  settings: Awaited<ReturnType<typeof metadataStorage.getSettings>>,
+  dimensions: { width: number; height: number },
+  gpsLocation: { latitude: number; longitude: number; accuracy: number; timestamp: number } | undefined,
+  sourceWebsite: { url: string; title: string } | undefined,
+  extraMetadata?: Record<string, any>
+) {
+  const assetId = `screenshot_${captureTime.getTime()}_${Math.random().toString(36).slice(2, 11)}`;
+
+  const asset = {
+    id: assetId,
+    uri: dataUrl,
+    type: 'image' as const,
+    mimeType: `image/${settings.screenshotFormat}`,
+    createdAt: captureTime.getTime(),
+    status: 'draft' as const,
+    metadata: {
+      uploadedAt: captureTime.toISOString(),
+      width: dimensions.width,
+      height: dimensions.height,
+      ...extraMetadata,
+    },
+    gpsLocation,
+    sourceWebsite,
+  };
+
+  await assetStorage.setAsset(asset);
+  return asset;
+}
+
+/**
+ * Handle post-capture actions: notification, badge update, and optional auto-upload
+ */
+async function handlePostCapture(
+  asset: Awaited<ReturnType<typeof createAndStoreAsset>>,
+  settings: Awaited<ReturnType<typeof metadataStorage.getSettings>>,
+  fromPopup: boolean
+) {
+  await showCaptureNotification(settings.autoUpload);
+  await updateExtensionBadge();
+
+  // Auto-upload if enabled and not initiated from popup
+  // (popup handles upload after showing headline/caption modal)
+  if (settings.autoUpload && !fromPopup) {
+    try {
+      const numbersApi = await getNumbersApi();
+      let auth = numbersApi.auth.isAuthenticated();
+
+      // If not authenticated in memory, try to reload token from storage
+      if (!auth) {
+        const storedAuth = await metadataStorage.getAuth();
+        if (storedAuth?.token) {
+          numbersApi.setAuthToken(storedAuth.token);
+          auth = true;
+          console.log('✅ Restored auth token from storage');
+        }
+      }
+
+      if (auth) {
+        await numbersApi.upload.addToQueue(asset);
+        console.log('✅ Asset added to upload queue');
+      } else {
+        console.log('⚠️ Auto-upload enabled but user not authenticated');
+      }
+    } catch (uploadError) {
+      console.error('Failed to add asset to upload queue:', uploadError);
+      // Don't fail the capture if upload queueing fails
+    }
+  }
+}
+
+/**
  * Handle selection complete message from content script
  */
 async function handleSelectionComplete(payload: any) {
@@ -245,6 +369,7 @@ async function handleSelectionComplete(payload: any) {
         timestamp: captureTime.toISOString(),
         width: coordinates.width,
         height: coordinates.height,
+        format: settings.screenshotFormat,
         timestampSize: settings.timestampSize,
         timestampFormat: settings.timestampFormat,
         timestampOpacity: settings.timestampOpacity,
@@ -261,96 +386,25 @@ async function handleSelectionComplete(payload: any) {
       console.warn('Failed to process selection:', response.error);
     }
 
-    // Get location if enabled via offscreen document
-    let gpsLocation: { latitude: number; longitude: number; accuracy: number; timestamp: number } | undefined = undefined;
-    if (settings.includeLocation) {
-      try {
-        await ensureOffscreenDocument();
-        const locationResponse = await chrome.runtime.sendMessage({
-          type: 'GET_GEOLOCATION',
-        });
-        if (locationResponse.success && locationResponse.data) {
-          gpsLocation = locationResponse.data;
-          console.log('✅ Geolocation captured:', gpsLocation!.latitude, gpsLocation!.longitude);
-        } else {
-          console.warn('⚠️ Could not get geolocation:', locationResponse.error || 'Permission denied or unavailable');
-        }
-      } catch (error) {
-        console.warn('⚠️ Geolocation error:', error);
-        // Continue without location
-      }
-    }
+    const { gpsLocation, sourceWebsite } = await getCaptureDependencies(tab, settings);
 
-    // Capture website metadata if enabled
-    let sourceWebsite = undefined;
-    if (settings.includeWebsiteInfo && tab.url && tab.title) {
-      try {
-        sourceWebsite = {
-          url: tab.url,
-          title: tab.title,
-        };
-      } catch (error) {
-        console.warn('Failed to parse URL:', error);
-      }
-    }
-
-    // Store screenshot as asset
-    const assetId = `screenshot_${captureTime.getTime()}_${Math.random().toString(36).slice(2, 11)}`;
-
-    const asset = {
-      id: assetId,
-      uri: dataUrl,
-      type: 'image' as const,
-      mimeType: `image/${settings.screenshotFormat}`,
-      createdAt: captureTime.getTime(),
-      status: 'draft' as const,
-      metadata: {
-        uploadedAt: captureTime.toISOString(),
-        width: coordinates.width,
-        height: coordinates.height,
-        captureMode: 'selection',
-      },
+    const asset = await createAndStoreAsset(
+      dataUrl,
+      captureTime,
+      settings,
+      { width: coordinates.width, height: coordinates.height },
       gpsLocation,
       sourceWebsite,
-    };
+      { captureMode: 'selection' }
+    );
 
-    await assetStorage.setAsset(asset);
-
-    // Show notification
-    await showCaptureNotification(settings.autoUpload);
-    await updateExtensionBadge();
-
-    // Auto-upload if enabled and not initiated from popup
-    // (popup handles upload after showing headline/caption modal)
-    if (settings.autoUpload && !pendingSelectionFromPopup) {
-      try {
-        let numbersApi = await getNumbersApi();
-        let auth = numbersApi.auth.isAuthenticated();
-        
-        // If not authenticated in memory, try to reload token from storage
-        if (!auth) {
-          const storedAuth = await metadataStorage.getAuth();
-          if (storedAuth?.token) {
-            numbersApi.setAuthToken(storedAuth.token);
-            auth = true;
-            console.log('✅ Restored auth token from storage');
-          }
-        }
-        
-        if (auth) {
-          await numbersApi.upload.addToQueue(asset);
-          console.log('✅ Asset added to upload queue');
-        }
-      } catch (uploadError) {
-        console.error('Failed to add asset to upload queue:', uploadError);
-      }
-    }
+    await handlePostCapture(asset, settings, pendingSelectionFromPopup);
 
     // Notify popup
     chrome.runtime.sendMessage({
       type: 'SCREENSHOT_CAPTURED',
       payload: {
-        assetId,
+        assetId: asset.id,
         dataUrl,
         timestamp: captureTime,
       },
@@ -359,7 +413,7 @@ async function handleSelectionComplete(payload: any) {
     // Resolve the pending promise
     if (pendingSelectionResolve) {
       pendingSelectionResolve({
-        assetId,
+        assetId: asset.id,
         dataUrl,
         timestamp: captureTime.toISOString(),
         autoUpload: settings.autoUpload,
@@ -446,6 +500,7 @@ async function handleScreenshotCapture(
           timestamp: captureTime.toISOString(),
           width,
           height,
+          format: settings.screenshotFormat,
           timestampSize: settings.timestampSize,
           timestampFormat: settings.timestampFormat,
           timestampOpacity: settings.timestampOpacity,
@@ -465,61 +520,16 @@ async function handleScreenshotCapture(
       // Continue without watermark if it fails
     }
 
-    // Get location if enabled via offscreen document
-    let gpsLocation: { latitude: number; longitude: number; accuracy: number; timestamp: number } | undefined = undefined;
-    if (settings.includeLocation) {
-      try {
-        await ensureOffscreenDocument();
-        const locationResponse = await chrome.runtime.sendMessage({
-          type: 'GET_GEOLOCATION',
-        });
-        if (locationResponse.success && locationResponse.data) {
-          gpsLocation = locationResponse.data;
-          console.log('✅ Geolocation captured:', gpsLocation!.latitude, gpsLocation!.longitude);
-        } else {
-          console.warn('⚠️ Could not get geolocation:', locationResponse.error || 'Permission denied or unavailable');
-        }
-      } catch (error) {
-        console.warn('⚠️ Geolocation error:', error);
-        // Continue without location
-      }
-    }
+    const { gpsLocation, sourceWebsite } = await getCaptureDependencies(tab, settings);
 
-    // Capture website metadata if enabled
-    let sourceWebsite = undefined;
-    if (settings.includeWebsiteInfo && tab.url && tab.title) {
-      try {
-        const url = new URL(tab.url);
-        sourceWebsite = {
-          url: tab.url,
-          title: tab.title,
-        };
-        console.log('✅ Website metadata captured:', url.hostname);
-      } catch (error) {
-        console.warn('Failed to parse URL:', error);
-      }
-    }
-
-    // Store screenshot as asset
-    const assetId = `screenshot_${captureTime.getTime()}_${Math.random().toString(36).slice(2, 11)}`;
-
-    const asset = {
-      id: assetId,
-      uri: dataUrl,
-      type: 'image' as const,
-      mimeType: `image/${settings.screenshotFormat}`,
-      createdAt: captureTime.getTime(),
-      status: 'draft' as const,
-      metadata: {
-        uploadedAt: captureTime.toISOString(),
-        width,
-        height,
-      },
+    const asset = await createAndStoreAsset(
+      dataUrl,
+      captureTime,
+      settings,
+      { width, height },
       gpsLocation,
-      sourceWebsite,
-    };
-
-    await assetStorage.setAsset(asset);
+      sourceWebsite
+    );
 
     // Note: mode and options parameters preserved for future implementation
     console.log('Capture mode:', mode, 'Options:', options);
@@ -528,48 +538,17 @@ async function handleScreenshotCapture(
     chrome.runtime.sendMessage({
       type: 'SCREENSHOT_CAPTURED',
       payload: {
-        assetId,
+        assetId: asset.id,
         dataUrl,
         timestamp: captureTime,
       },
     });
 
-    // Show user feedback for quick capture
-    await showCaptureNotification(settings.autoUpload);
-    await updateExtensionBadge();
-
-    // Auto-upload if enabled and not initiated from popup
-    // (popup handles upload after showing headline/caption modal)
     const fromPopup = options?.fromPopup === true;
-    if (settings.autoUpload && !fromPopup) {
-      try {
-        let numbersApi = await getNumbersApi();
-        let auth = numbersApi.auth.isAuthenticated();
-        
-        // If not authenticated in memory, try to reload token from storage
-        if (!auth) {
-          const storedAuth = await metadataStorage.getAuth();
-          if (storedAuth?.token) {
-            numbersApi.setAuthToken(storedAuth.token);
-            auth = true;
-            console.log('✅ Restored auth token from storage');
-          }
-        }
-        
-        if (auth) {
-          await numbersApi.upload.addToQueue(asset);
-          console.log('✅ Asset added to upload queue');
-        } else {
-          console.log('⚠️ Auto-upload enabled but user not authenticated');
-        }
-      } catch (uploadError) {
-        console.error('Failed to add asset to upload queue:', uploadError);
-        // Don't fail the capture if upload queueing fails
-      }
-    }
+    await handlePostCapture(asset, settings, fromPopup);
 
     return {
-      assetId,
+      assetId: asset.id,
       dataUrl,
       timestamp: captureTime.toISOString(),
       autoUpload: settings.autoUpload,

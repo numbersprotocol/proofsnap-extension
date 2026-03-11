@@ -11,6 +11,7 @@ interface WatermarkPayload {
   timestamp: string;
   width: number;
   height: number;
+  format?: 'png' | 'jpeg';
   timestampSize?: 'small' | 'medium' | 'large';
   timestampFormat?: 'full' | 'compact' | 'time-only';
   timestampOpacity?: number;
@@ -162,8 +163,9 @@ async function addWatermark(payload: WatermarkPayload): Promise<{ dataUrl: strin
   // Always draw logo
   await drawLogo(ctx, canvas.width, canvas.height);
 
-  // Convert to data URL
-  return { dataUrl: canvas.toDataURL('image/png') };
+  // Convert to data URL using the requested format
+  const mimeType = payload.format === 'jpeg' ? 'image/jpeg' : 'image/png';
+  return { dataUrl: canvas.toDataURL(mimeType) };
 }
 
 /**
