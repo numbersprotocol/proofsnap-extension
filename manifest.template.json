@@ -6,7 +6,6 @@
   "permissions": [
     "activeTab",
     "storage",
-    "tabs",
     "offscreen",
     "notifications",
     "identity",

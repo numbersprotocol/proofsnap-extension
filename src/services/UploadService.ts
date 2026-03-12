@@ -35,7 +35,8 @@ export class UploadService {
   }
 
   /**
-   * Restore upload queue from storage on initialization
+   * Restore upload queue from storage on initialization.
+   * Does NOT start processing — call startProcessing() after auth is ready.
    */
   private async restoreQueue() {
     try {
@@ -51,12 +52,20 @@ export class UploadService {
         }
         this.uploadQueue = assets;
         console.log(`Restored ${assets.length} assets to upload queue`);
-        // Auto-start processing if not paused
-        this.processQueue();
+        // Processing is deferred until startProcessing() is called after auth init
       }
     } catch (error) {
       console.error('Failed to restore upload queue:', error);
     }
+  }
+
+  /**
+   * Start processing the upload queue.
+   * Must be called explicitly after authentication has been initialized
+   * to avoid uploading with a missing auth token.
+   */
+  startProcessing(): void {
+    this.processQueue();
   }
 
   /**

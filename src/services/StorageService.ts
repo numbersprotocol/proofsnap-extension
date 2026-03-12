@@ -132,9 +132,15 @@ export class StorageService {
   async getSettings(): Promise<StoredSettings> {
     const result = await chrome.storage.local.get('user_settings');
     if (result.user_settings) {
-      const saved = JSON.parse(result.user_settings);
-      // Merge with defaults to ensure new fields are present
-      return { ...DEFAULT_SETTINGS, ...saved };
+      try {
+        const saved = JSON.parse(result.user_settings);
+        // Merge with defaults to ensure new fields are present
+        return { ...DEFAULT_SETTINGS, ...saved };
+      } catch (error) {
+        console.error('Failed to parse user_settings from storage, resetting to defaults:', error);
+        await this.setSettings(DEFAULT_SETTINGS);
+        return DEFAULT_SETTINGS;
+      }
     }
     return DEFAULT_SETTINGS;
   }
@@ -166,7 +172,13 @@ export class StorageService {
   async getUploadQueueIds(): Promise<string[]> {
     const result = await chrome.storage.local.get('upload_queue');
     if (result.upload_queue) {
-      return JSON.parse(result.upload_queue);
+      try {
+        return JSON.parse(result.upload_queue);
+      } catch (error) {
+        console.error('Failed to parse upload_queue from storage, resetting to empty queue:', error);
+        await chrome.storage.local.remove('upload_queue');
+        return [];
+      }
     }
     return [];
   }

@@ -29,6 +29,8 @@ Promise.all([
       updateExtensionBadge();
     });
     console.log('Upload completion callback registered');
+    // Auth is now initialized — safe to start processing any queued uploads
+    numbersApi.upload.startProcessing();
   } catch (error) {
     console.error('Failed to initialize NumbersApiManager:', error);
   }
@@ -162,6 +164,7 @@ async function handleScreenshotCaptureMessage(message: CaptureScreenshotMessage)
 let pendingSelectionResolve: ((value: any) => void) | null = null;
 let pendingSelectionReject: ((reason: any) => void) | null = null;
 let pendingSelectionFromPopup = false;
+let pendingSelectionTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
 /**
  * Handle selection mode capture
@@ -170,6 +173,22 @@ let pendingSelectionFromPopup = false;
 async function handleSelectionCapture(tab: chrome.tabs.Tab): Promise<any> {
   if (!tab.id) {
     throw new Error('No active tab found');
+  }
+
+  // Validate that the tab is on a page that supports content script injection
+  if (!tab.url?.match(/^https?:\/\//)) {
+    throw new Error('Selection mode is only supported on web pages with http:// or https:// URLs. Chrome extension pages, local files, and browser pages cannot be captured.');
+  }
+
+  // Reject any existing pending selection to avoid resource leaks
+  if (pendingSelectionReject) {
+    pendingSelectionReject(new Error('Selection cancelled: a new selection was started'));
+    pendingSelectionResolve = null;
+    pendingSelectionReject = null;
+  }
+  if (pendingSelectionTimeoutId !== null) {
+    clearTimeout(pendingSelectionTimeoutId);
+    pendingSelectionTimeoutId = null;
   }
 
   // Inject the selection overlay content script
@@ -189,11 +208,12 @@ async function handleSelectionCapture(tab: chrome.tabs.Tab): Promise<any> {
     pendingSelectionReject = reject;
 
     // Timeout after 60 seconds
-    setTimeout(() => {
+    pendingSelectionTimeoutId = setTimeout(() => {
       if (pendingSelectionReject) {
         pendingSelectionReject(new Error('Selection timed out'));
         pendingSelectionResolve = null;
         pendingSelectionReject = null;
+        pendingSelectionTimeoutId = null;
       }
     }, 60000);
   });
@@ -205,6 +225,10 @@ async function handleSelectionCapture(tab: chrome.tabs.Tab): Promise<any> {
 async function handleSelectionComplete(payload: any) {
   if (payload.cancelled) {
     console.log('Selection cancelled:', payload.reason);
+    if (pendingSelectionTimeoutId !== null) {
+      clearTimeout(pendingSelectionTimeoutId);
+      pendingSelectionTimeoutId = null;
+    }
     if (pendingSelectionResolve) {
       pendingSelectionResolve({ cancelled: true, reason: payload.reason });
       pendingSelectionResolve = null;
@@ -357,6 +381,10 @@ async function handleSelectionComplete(payload: any) {
     });
 
     // Resolve the pending promise
+    if (pendingSelectionTimeoutId !== null) {
+      clearTimeout(pendingSelectionTimeoutId);
+      pendingSelectionTimeoutId = null;
+    }
     if (pendingSelectionResolve) {
       pendingSelectionResolve({
         assetId,
@@ -370,6 +398,10 @@ async function handleSelectionComplete(payload: any) {
     }
   } catch (error: any) {
     console.error('Failed to capture selection:', error);
+    if (pendingSelectionTimeoutId !== null) {
+      clearTimeout(pendingSelectionTimeoutId);
+      pendingSelectionTimeoutId = null;
+    }
     if (pendingSelectionReject) {
       pendingSelectionReject(error);
       pendingSelectionResolve = null;
