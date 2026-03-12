@@ -4,6 +4,7 @@
  */
 
 import { storageService } from '../services/StorageService';
+import { validateNid } from '../utils/logger';
 import './share.css';
 
 async function init() {
@@ -11,7 +12,7 @@ async function init() {
   const params = new URLSearchParams(window.location.search);
   const nid = params.get('nid');
   
-  if (!nid) {
+  if (!validateNid(nid)) {
     document.getElementById('root')!.innerHTML = '<p>No asset to share</p>';
     return;
   }

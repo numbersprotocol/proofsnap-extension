@@ -6,7 +6,8 @@
 import { storageService } from '../services/StorageService';
 import { indexedDBService } from '../services/IndexedDBService';
 import { getNumbersApi } from '../services/NumbersApiManager';
-import { ExtensionMessage, CaptureScreenshotMessage } from '../types';
+import { ExtensionMessage, CaptureScreenshotMessage, SelectionCoordinates } from '../types';
+import { logger } from '../utils/logger';
 
 console.log('ProofSnap background service worker loaded');
 
@@ -92,7 +93,7 @@ chrome.action.onClicked.addListener(async (tab) => {
  * Handle messages from popup
  */
 chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendResponse) => {
-  console.log('Message received:', message.type, message.payload);
+  console.log('Message received:', message.type);
 
   switch (message.type) {
     case 'CAPTURE_SCREENSHOT':
@@ -200,21 +201,56 @@ async function handleSelectionCapture(tab: chrome.tabs.Tab): Promise<any> {
 }
 
 /**
+ * Validate SelectionCoordinates payload
+ */
+function validateCoordinates(coords: unknown): coords is SelectionCoordinates {
+  if (!coords || typeof coords !== 'object') return false;
+  const c = coords as Record<string, unknown>;
+  return (
+    typeof c.x === 'number' &&
+    typeof c.y === 'number' &&
+    typeof c.width === 'number' &&
+    typeof c.height === 'number' &&
+    c.width > 0 &&
+    c.height > 0 &&
+    c.width <= 32767 &&
+    c.height <= 32767
+  );
+}
+
+/**
+ * Validate asset upload payload
+ */
+function validateAssetUploadPayload(payload: unknown): payload is { assetId: string } {
+  if (!payload || typeof payload !== 'object') return false;
+  const p = payload as Record<string, unknown>;
+  return typeof p.assetId === 'string' && p.assetId.length > 0;
+}
+
+/**
  * Handle selection complete message from content script
  */
-async function handleSelectionComplete(payload: any) {
-  if (payload.cancelled) {
-    console.log('Selection cancelled:', payload.reason);
+async function handleSelectionComplete(payload: unknown) {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Invalid selection payload');
+  }
+  const p = payload as Record<string, unknown>;
+  if (p.cancelled) {
+    const reason = typeof p.reason === 'string' ? p.reason : undefined;
+    logger.log('Selection cancelled:', reason);
     if (pendingSelectionResolve) {
-      pendingSelectionResolve({ cancelled: true, reason: payload.reason });
+      pendingSelectionResolve({ cancelled: true, reason });
       pendingSelectionResolve = null;
       pendingSelectionReject = null;
     }
     return;
   }
 
-  const { coordinates } = payload;
-  console.log('Selection complete:', coordinates);
+  const { coordinates } = p;
+  if (!validateCoordinates(coordinates)) {
+    throw new Error('Invalid or out-of-range selection coordinates');
+  }
+  logger.log('Selection complete:', coordinates);
 
   try {
     // Get the active tab to capture
@@ -640,7 +676,10 @@ async function updateExtensionBadge() {
 /**
  * Handle asset upload
  */
-async function handleAssetUpload(payload: any) {
+async function handleAssetUpload(payload: unknown) {
+  if (!validateAssetUploadPayload(payload)) {
+    throw new Error('Invalid asset upload payload');
+  }
   try {
     const asset = await assetStorage.getAsset(payload.assetId);
 

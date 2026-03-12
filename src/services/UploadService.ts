@@ -7,6 +7,7 @@ import { ApiClient } from './ApiClient';
 import { storageService } from './StorageService';
 import { indexedDBService } from './IndexedDBService';
 import type { Asset } from './IndexedDBService';
+import { validateNid } from '../utils/logger';
 
 export interface UploadProgress {
   assetId: string;
@@ -346,7 +347,7 @@ export class UploadService {
     });
 
     // Check if Hunt Mode is enabled and open share page
-    if (nid) {
+    if (validateNid(nid)) {
       try {
         const settings = await this.metadataStorage.getSettings();
         console.log('[Hunt Mode] Settings loaded:', { 

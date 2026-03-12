@@ -122,7 +122,7 @@ export class NumbersApiManager {
           username: user.username,
         });
 
-        console.log('Token validated successfully for user:', user.email);
+        console.log('Token validated successfully');
       } catch (error: unknown) {
         const statusCode = error instanceof ApiError ? error.statusCode : undefined;
         const errorMessage = error instanceof Error ? error.message : String(error);

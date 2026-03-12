@@ -10,6 +10,7 @@ import { storageService } from '../services/StorageService';
 import AuthForm from './AuthForm';
 import InsufficientCreditsNotification from './InsufficientCreditsNotification';
 import { getNumbersApi } from '../services/NumbersApiManager';
+import { validateNid } from '../utils/logger';
 import './popup.css';
 
 /**
@@ -611,18 +612,20 @@ function AssetThumbnail({ asset, onUpload, huntMode }: { asset: Asset; onUpload?
 
   const handleViewOnBlockchain = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (asset.metadata?.nid) {
+    const nid = asset.metadata?.nid;
+    if (validateNid(nid)) {
       // Open Numbers Protocol asset page in new tab
       chrome.tabs.create({
-        url: `https://asset.captureapp.xyz/${asset.metadata.nid}`,
+        url: `https://asset.captureapp.xyz/${nid}`,
       });
     }
   };
 
   const handleShareToX = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (asset.metadata?.nid && huntMode) {
-      const verifyUrl = `https://asset.captureapp.xyz/${asset.metadata.nid}`;
+    const nid = asset.metadata?.nid;
+    if (validateNid(nid) && huntMode) {
+      const verifyUrl = `https://asset.captureapp.xyz/${nid}`;
       const text = `${huntMode.message} ${verifyUrl} ${huntMode.hashtags}`;
       const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`;
       chrome.tabs.create({ url: twitterUrl });
@@ -631,8 +634,9 @@ function AssetThumbnail({ asset, onUpload, huntMode }: { asset: Asset; onUpload?
 
   const handleCopyLink = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (asset.metadata?.nid) {
-      const verifyUrl = `https://asset.captureapp.xyz/${asset.metadata.nid}`;
+    const nid = asset.metadata?.nid;
+    if (validateNid(nid)) {
+      const verifyUrl = `https://asset.captureapp.xyz/${nid}`;
       try {
         await navigator.clipboard.writeText(verifyUrl);
         // Could add toast notification here
