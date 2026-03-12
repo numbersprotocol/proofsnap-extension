@@ -3,7 +3,7 @@
  * Full-featured settings and authentication page
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import { storageService, StoredSettings } from '../services/StorageService';
 import './options.css';
@@ -452,6 +452,7 @@ function UploadSettings({
 function OptionsApp() {
   const [settings, setSettings] = useState<StoredSettings | null>(null);
   const [loading, setLoading] = useState(true);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     loadData();
@@ -472,21 +473,27 @@ function OptionsApp() {
   async function handleSaveSettings(updates: Partial<StoredSettings>) {
     if (!settings) return;
 
-    try {
-      const newSettings = { ...settings, ...updates };
-      await storageService.setSettings(newSettings);
-      setSettings(newSettings);
+    const newSettings = { ...settings, ...updates };
+    setSettings(newSettings);
 
-      // Show success message briefly
-      const savedMessage = document.querySelector('.saved-message');
-      if (savedMessage) {
-        savedMessage.classList.add('show');
-        setTimeout(() => savedMessage.classList.remove('show'), 2000);
+    // Debounce the storage write to avoid excessive I/O on rapid changes (e.g. slider drags)
+    clearTimeout(saveTimerRef.current ?? undefined);
+    saveTimerRef.current = setTimeout(async () => {
+      saveTimerRef.current = null;
+      try {
+        await storageService.setSettings(newSettings);
+
+        // Show success message briefly
+        const savedMessage = document.querySelector('.saved-message');
+        if (savedMessage) {
+          savedMessage.classList.add('show');
+          setTimeout(() => savedMessage.classList.remove('show'), 2000);
+        }
+      } catch (error) {
+        console.error('Failed to save settings:', error);
+        alert('Failed to save settings');
       }
-    } catch (error) {
-      console.error('Failed to save settings:', error);
-      alert('Failed to save settings');
-    }
+    }, 300);
   }
 
   if (loading) {

@@ -311,7 +311,7 @@ async function drawLogo(
   canvasHeight: number
 ): Promise<void> {
   try {
-    const logo = await loadImage('../../images/Word-Logo-Bright-crop.png');
+    const logo = await loadImage(chrome.runtime.getURL('images/Word-Logo-Bright-crop.png'));
     const logoWidth = Math.max(100, Math.floor(canvasWidth / 12));
     const logoHeight = logoWidth * (157 / 828); // Exact aspect ratio from source (828x157)
     const logoX = canvasWidth - logoWidth - 20;
