@@ -5,9 +5,79 @@
 
 console.log('ProofSnap offscreen document loaded');
 
+// ---------------------------------------------------------------------------
+// Minimal inline IndexedDB access (mirrors IndexedDBService but without
+// the full service class, to keep the offscreen bundle self-contained)
+// ---------------------------------------------------------------------------
+
+const DB_NAME = 'ProofSnapDB';
+const DB_VERSION = 1;
+const STORE_NAME = 'assets';
+
+function openDB(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(new Error('Failed to open IndexedDB'));
+    // Provide a fallback upgrade handler so the offscreen document can open
+    // the database even if it races ahead of the service worker.  In normal
+    // operation the service worker creates the schema on first install, so
+    // this path is rarely taken.
+    request.onupgradeneeded = (event) => {
+      const db = (event.target as IDBOpenDBRequest).result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+        store.createIndex('status', 'status', { unique: false });
+        store.createIndex('createdAt', 'createdAt', { unique: false });
+        store.createIndex('type', 'type', { unique: false });
+      }
+    };
+  });
+}
+
+async function getAssetUri(id: string): Promise<string> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction([STORE_NAME], 'readonly');
+    const store = tx.objectStore(STORE_NAME);
+    const request = store.get(id);
+    request.onsuccess = () => {
+      if (request.result?.uri) {
+        resolve(request.result.uri);
+      } else {
+        reject(new Error(`Asset ${id} not found or has no uri`));
+      }
+    };
+    request.onerror = () => reject(new Error('Failed to read asset from IndexedDB'));
+  });
+}
+
+async function updateAssetUri(id: string, uri: string): Promise<void> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction([STORE_NAME], 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    const getRequest = store.get(id);
+    getRequest.onsuccess = () => {
+      const asset = getRequest.result;
+      if (!asset) {
+        reject(new Error(`Asset ${id} not found`));
+        return;
+      }
+      asset.uri = uri;
+      const putRequest = store.put(asset);
+      putRequest.onsuccess = () => resolve();
+      putRequest.onerror = () => reject(new Error('Failed to update asset uri'));
+    };
+    getRequest.onerror = () => reject(new Error('Failed to read asset for update'));
+  });
+}
+
+// ---------------------------------------------------------------------------
+
 // Type definitions for watermark options
 interface WatermarkPayload {
-  dataUrl: string;
+  assetId: string;
   timestamp: string;
   width: number;
   height: number;
@@ -120,10 +190,12 @@ async function cropImage(payload: {
 
 /**
  * Add watermark to screenshot
+ * - Reads the asset data URL from IndexedDB (avoids large message-channel payloads)
  * - Logo is always added in bottom-right
  * - Timestamp is optional based on user settings
+ * - Writes the watermarked data URL back to IndexedDB
  */
-async function addWatermark(payload: WatermarkPayload): Promise<{ dataUrl: string }> {
+async function addWatermark(payload: WatermarkPayload): Promise<{ assetId: string }> {
   const canvas = document.getElementById('canvas') as HTMLCanvasElement;
   const ctx = canvas.getContext('2d');
 
@@ -131,8 +203,11 @@ async function addWatermark(payload: WatermarkPayload): Promise<{ dataUrl: strin
     throw new Error('Failed to get canvas context');
   }
 
+  // Read asset URI from IndexedDB instead of receiving it via message channel
+  const dataUrl = await getAssetUri(payload.assetId);
+
   // Load original image
-  const img = await loadImage(payload.dataUrl);
+  const img = await loadImage(dataUrl);
   
   // Handle cropping if specified
   if (payload.crop) {
@@ -162,8 +237,11 @@ async function addWatermark(payload: WatermarkPayload): Promise<{ dataUrl: strin
   // Always draw logo
   await drawLogo(ctx, canvas.width, canvas.height);
 
-  // Convert to data URL
-  return { dataUrl: canvas.toDataURL('image/png') };
+  // Write watermarked data URL back to IndexedDB
+  const watermarkedDataUrl = canvas.toDataURL('image/png');
+  await updateAssetUri(payload.assetId, watermarkedDataUrl);
+
+  return { assetId: payload.assetId };
 }
 
 /**

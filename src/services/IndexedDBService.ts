@@ -5,6 +5,8 @@
  * Pure storage layer - no dependencies on other services
  */
 
+export type AssetMetadata = Omit<Asset, 'uri'>;
+
 const DB_NAME = 'ProofSnapDB';
 const DB_VERSION = 1;
 const STORE_NAME = 'assets';
@@ -141,6 +143,51 @@ export class IndexedDBService {
         resolve(assets);
       };
       request.onerror = () => reject(new Error('Failed to get assets'));
+    });
+  }
+
+  /**
+   * Get all asset metadata (excludes the `uri` field to reduce memory usage)
+   * Use this for list views where thumbnails are not needed
+   */
+  async getAllAssetMetadata(): Promise<AssetMetadata[]> {
+    const db = await this.ensureDB();
+
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORE_NAME], 'readonly');
+      const store = transaction.objectStore(STORE_NAME);
+      const results: AssetMetadata[] = [];
+      const request = store.openCursor();
+
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (cursor) {
+          const { uri: _uri, ...metadata } = cursor.value as Asset;
+          results.push(metadata);
+          cursor.continue();
+        } else {
+          results.sort((a, b) => b.createdAt - a.createdAt);
+          resolve(results);
+        }
+      };
+      request.onerror = () => reject(new Error('Failed to get asset metadata'));
+    });
+  }
+
+  /**
+   * Get the total number of stored assets
+   * Lightweight alternative to getAllAssets() for badge/count-only updates
+   */
+  async getAssetCount(): Promise<number> {
+    const db = await this.ensureDB();
+
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORE_NAME], 'readonly');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.count();
+
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(new Error('Failed to count assets'));
     });
   }
 

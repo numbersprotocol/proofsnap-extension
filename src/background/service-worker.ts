@@ -230,36 +230,10 @@ async function handleSelectionComplete(payload: any) {
     const settings = await metadataStorage.getSettings();
 
     // Capture full visible tab
-    let dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
+    const rawDataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
       format: settings.screenshotFormat === 'jpeg' ? 'jpeg' : 'png',
       quality: settings.screenshotFormat === 'jpeg' ? settings.screenshotQuality : undefined,
     });
-
-    // Crop and add watermark via offscreen document
-    await ensureOffscreenDocument();
-
-    const response = await chrome.runtime.sendMessage({
-      type: 'ADD_WATERMARK',
-      payload: {
-        dataUrl,
-        timestamp: captureTime.toISOString(),
-        width: coordinates.width,
-        height: coordinates.height,
-        timestampSize: settings.timestampSize,
-        timestampFormat: settings.timestampFormat,
-        timestampOpacity: settings.timestampOpacity,
-        timestampPosition: settings.timestampPosition,
-        includeTimestamp: settings.includeTimestamp,
-        crop: coordinates,
-      },
-    });
-
-    if (response.success) {
-      dataUrl = response.data.dataUrl;
-      console.log('✅ Selection cropped and watermark added');
-    } else {
-      console.warn('Failed to process selection:', response.error);
-    }
 
     // Get location if enabled via offscreen document
     let gpsLocation: { latitude: number; longitude: number; accuracy: number; timestamp: number } | undefined = undefined;
@@ -294,12 +268,13 @@ async function handleSelectionComplete(payload: any) {
       }
     }
 
-    // Store screenshot as asset
+    // Store raw screenshot in IndexedDB first so the offscreen document can read
+    // it by ID, avoiding passing the full base64 data URL through the message channel
     const assetId = `screenshot_${captureTime.getTime()}_${Math.random().toString(36).slice(2, 11)}`;
 
     const asset = {
       id: assetId,
-      uri: dataUrl,
+      uri: rawDataUrl,
       type: 'image' as const,
       mimeType: `image/${settings.screenshotFormat}`,
       createdAt: captureTime.getTime(),
@@ -315,6 +290,31 @@ async function handleSelectionComplete(payload: any) {
     };
 
     await assetStorage.setAsset(asset);
+
+    // Crop and add watermark via offscreen document (passes assetId, not the data URL)
+    await ensureOffscreenDocument();
+
+    const response = await chrome.runtime.sendMessage({
+      type: 'ADD_WATERMARK',
+      payload: {
+        assetId,
+        timestamp: captureTime.toISOString(),
+        width: coordinates.width,
+        height: coordinates.height,
+        timestampSize: settings.timestampSize,
+        timestampFormat: settings.timestampFormat,
+        timestampOpacity: settings.timestampOpacity,
+        timestampPosition: settings.timestampPosition,
+        includeTimestamp: settings.includeTimestamp,
+        crop: coordinates,
+      },
+    });
+
+    if (response.success) {
+      console.log('✅ Selection cropped and watermark added');
+    } else {
+      console.warn('Failed to process selection:', response.error);
+    }
 
     // Show notification
     await showCaptureNotification(settings.autoUpload);
@@ -338,7 +338,11 @@ async function handleSelectionComplete(payload: any) {
         }
         
         if (auth) {
-          await numbersApi.upload.addToQueue(asset);
+          // Re-read asset from IDB to get the watermarked URI
+          const updatedAsset = await assetStorage.getAsset(assetId);
+          if (updatedAsset) {
+            await numbersApi.upload.addToQueue(updatedAsset);
+          }
           console.log('✅ Asset added to upload queue');
         }
       } catch (uploadError) {
@@ -346,12 +350,11 @@ async function handleSelectionComplete(payload: any) {
       }
     }
 
-    // Notify popup
+    // Notify popup (no data URL — popup reloads assets from IndexedDB)
     chrome.runtime.sendMessage({
       type: 'SCREENSHOT_CAPTURED',
       payload: {
         assetId,
-        dataUrl,
         timestamp: captureTime,
       },
     });
@@ -360,7 +363,6 @@ async function handleSelectionComplete(payload: any) {
     if (pendingSelectionResolve) {
       pendingSelectionResolve({
         assetId,
-        dataUrl,
         timestamp: captureTime.toISOString(),
         autoUpload: settings.autoUpload,
       });
@@ -425,45 +427,20 @@ async function handleScreenshotCapture(
     const settings = await metadataStorage.getSettings();
 
     // Capture screenshot directly using Chrome API
-    let dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
+    const rawDataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
       format: settings.screenshotFormat === 'jpeg' ? 'jpeg' : 'png',
       quality: settings.screenshotFormat === 'jpeg' ? settings.screenshotQuality : undefined,
     });
 
     // Get image dimensions from data URL
-    const img = await createImageBitmap(await (await fetch(dataUrl)).blob());
-    let width = img.width;
-    let height = img.height;
+    const img = await createImageBitmap(await (await fetch(rawDataUrl)).blob());
+    const width = img.width;
+    const height = img.height;
 
-    // Add watermark (logo always included, timestamp optional)
-    try {
-      await ensureOffscreenDocument();
-
-      const response = await chrome.runtime.sendMessage({
-        type: 'ADD_WATERMARK',
-        payload: {
-          dataUrl,
-          timestamp: captureTime.toISOString(),
-          width,
-          height,
-          timestampSize: settings.timestampSize,
-          timestampFormat: settings.timestampFormat,
-          timestampOpacity: settings.timestampOpacity,
-          timestampPosition: settings.timestampPosition,
-          includeTimestamp: settings.includeTimestamp,
-        },
-      });
-
-      if (response.success) {
-        dataUrl = response.data.dataUrl;
-        console.log('✅ Watermark added successfully');
-      } else {
-        console.warn('Failed to add watermark:', response.error);
-      }
-    } catch (error) {
-      console.error('Watermark error:', error);
-      // Continue without watermark if it fails
-    }
+    // Store raw screenshot in IndexedDB first so the offscreen document can
+    // read it by ID, avoiding passing the full base64 data URL through the
+    // message channel (prevents 2× serialization of 2–10 MB per image)
+    const assetId = `screenshot_${captureTime.getTime()}_${Math.random().toString(36).slice(2, 11)}`;
 
     // Get location if enabled via offscreen document
     let gpsLocation: { latitude: number; longitude: number; accuracy: number; timestamp: number } | undefined = undefined;
@@ -500,12 +477,9 @@ async function handleScreenshotCapture(
       }
     }
 
-    // Store screenshot as asset
-    const assetId = `screenshot_${captureTime.getTime()}_${Math.random().toString(36).slice(2, 11)}`;
-
     const asset = {
       id: assetId,
-      uri: dataUrl,
+      uri: rawDataUrl,
       type: 'image' as const,
       mimeType: `image/${settings.screenshotFormat}`,
       createdAt: captureTime.getTime(),
@@ -521,15 +495,44 @@ async function handleScreenshotCapture(
 
     await assetStorage.setAsset(asset);
 
+    // Add watermark (logo always included, timestamp optional)
+    // Offscreen doc reads the asset from IndexedDB by ID and writes the result back
+    try {
+      await ensureOffscreenDocument();
+
+      const response = await chrome.runtime.sendMessage({
+        type: 'ADD_WATERMARK',
+        payload: {
+          assetId,
+          timestamp: captureTime.toISOString(),
+          width,
+          height,
+          timestampSize: settings.timestampSize,
+          timestampFormat: settings.timestampFormat,
+          timestampOpacity: settings.timestampOpacity,
+          timestampPosition: settings.timestampPosition,
+          includeTimestamp: settings.includeTimestamp,
+        },
+      });
+
+      if (response.success) {
+        console.log('✅ Watermark added successfully');
+      } else {
+        console.warn('Failed to add watermark:', response.error);
+      }
+    } catch (error) {
+      console.error('Watermark error:', error);
+      // Continue without watermark if it fails
+    }
+
     // Note: mode and options parameters preserved for future implementation
     console.log('Capture mode:', mode, 'Options:', options);
 
-    // Notify popup of new screenshot
+    // Notify popup of new screenshot (no data URL — popup reloads from IndexedDB)
     chrome.runtime.sendMessage({
       type: 'SCREENSHOT_CAPTURED',
       payload: {
         assetId,
-        dataUrl,
         timestamp: captureTime,
       },
     });
@@ -557,7 +560,11 @@ async function handleScreenshotCapture(
         }
         
         if (auth) {
-          await numbersApi.upload.addToQueue(asset);
+          // Re-read the asset from IDB to pick up the watermarked URI
+          const updatedAsset = await assetStorage.getAsset(assetId);
+          if (updatedAsset) {
+            await numbersApi.upload.addToQueue(updatedAsset);
+          }
           console.log('✅ Asset added to upload queue');
         } else {
           console.log('⚠️ Auto-upload enabled but user not authenticated');
@@ -570,7 +577,6 @@ async function handleScreenshotCapture(
 
     return {
       assetId,
-      dataUrl,
       timestamp: captureTime.toISOString(),
       autoUpload: settings.autoUpload,
     };
@@ -623,8 +629,7 @@ async function showCaptureNotification(autoUpload: boolean) {
  */
 async function updateExtensionBadge() {
   try {
-    const assets = await assetStorage.getAllAssets();
-    const pendingCount = assets.length;
+    const pendingCount = await assetStorage.getAssetCount();
 
     if (pendingCount > 0) {
       chrome.action.setBadgeText({ text: pendingCount.toString() });

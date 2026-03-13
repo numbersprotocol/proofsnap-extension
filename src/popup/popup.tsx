@@ -244,11 +244,27 @@ function PopupApp() {
     const handleMessage = async (message: any) => {
       if (message.type === 'UPLOAD_PROGRESS') {
         const payload = message.payload;
-        
-        // Reload assets to show updated progress
-        const updatedAssets = await indexedDBService.getAllAssets();
-        setAssets(updatedAssets);
-        await checkCreditStatus(updatedAssets);
+
+        if (payload?.status === 'uploading') {
+          // Progress-only update: update the specific asset in state directly
+          // without reloading the full asset list from IndexedDB
+          setAssets(prevAssets =>
+            prevAssets.map(a =>
+              a.id === payload.assetId
+                ? {
+                    ...a,
+                    status: 'uploading' as const,
+                    metadata: { ...a.metadata, uploadProgress: payload.progress },
+                  }
+                : a
+            )
+          );
+        } else {
+          // Status transition (uploaded / failed): reload full list from IndexedDB
+          const updatedAssets = await indexedDBService.getAllAssets();
+          setAssets(updatedAssets);
+          await checkCreditStatus(updatedAssets);
+        }
 
         // In Hunt Mode, show share prompt when upload succeeds
         if (huntMode.enabled && payload?.status === 'uploaded' && payload?.nid) {
