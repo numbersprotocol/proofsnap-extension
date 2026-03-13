@@ -14,8 +14,8 @@ console.log('ProofSnap background service worker loaded');
 const assetStorage = indexedDBService;
 const metadataStorage = storageService;
 
-// Initialize storage services
-Promise.all([
+// Readiness gate: all message handlers must await this before accessing storage
+const initPromise = Promise.all([
   assetStorage.init(),
   metadataStorage.init()
 ]).then(async () => {
@@ -96,7 +96,10 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendRe
 
   switch (message.type) {
     case 'CAPTURE_SCREENSHOT':
-      handleScreenshotCaptureMessage(message as CaptureScreenshotMessage)
+      (async () => {
+        await initPromise;
+        return handleScreenshotCaptureMessage(message as CaptureScreenshotMessage);
+      })()
         .then((result) => {
           if (result && result.cancelled) {
             sendResponse({ success: false, cancelled: true });
@@ -108,7 +111,10 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendRe
       return true; // Keep channel open for async response
 
     case 'UPLOAD_ASSET':
-      handleAssetUpload(message.payload)
+      (async () => {
+        await initPromise;
+        return handleAssetUpload(message.payload);
+      })()
         .then(() => sendResponse({ success: true }))
         .catch((error) => sendResponse({ success: false, error: error.message }));
       return true;
@@ -117,6 +123,7 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendRe
       console.log('Starting Google Auth in background...');
       (async () => {
         try {
+          await initPromise;
           const numbersApi = await getNumbersApi();
 
           // 1. Get ID Token via Chrome Identity (interactive flow)
@@ -140,7 +147,10 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendRe
 
     case 'SELECTION_COMPLETE':
       // Handle selection complete from content script
-      handleSelectionComplete(message.payload);
+      (async () => {
+        await initPromise;
+        await handleSelectionComplete(message.payload);
+      })().catch((error) => console.error('Error handling SELECTION_COMPLETE:', error));
       sendResponse({ success: true });
       return false;
 
@@ -185,6 +195,13 @@ async function handleSelectionCapture(tab: chrome.tabs.Tab): Promise<any> {
 
   // Wait for selection to complete via message
   return new Promise((resolve, reject) => {
+    // If there is already a pending selection, cancel it before starting a new one
+    if (pendingSelectionReject) {
+      pendingSelectionReject(new Error('Selection cancelled: a new selection was started'));
+      pendingSelectionResolve = null;
+      pendingSelectionReject = null;
+    }
+
     pendingSelectionResolve = resolve;
     pendingSelectionReject = reject;
 

@@ -87,6 +87,7 @@ export class NumbersApiManager {
   async clearAuth(): Promise<void> {
     await this.auth.clearAuth();
     await storageService.clearAuth();
+    resetInstance();
   }
 
   /**
@@ -150,10 +151,22 @@ export class NumbersApiManager {
 // Lazy singleton pattern
 let instance: NumbersApiManager | null = null;
 
+export function resetInstance(): void {
+  instance = null;
+}
+
 export async function getNumbersApi(): Promise<NumbersApiManager> {
   if (!instance) {
-    instance = new NumbersApiManager();
-    await instance.initialize();
+    const manager = new NumbersApiManager();
+    instance = manager;
+    await manager.initialize();
+    // If clearAuth() was called during initialize (stale/invalid token),
+    // instance was reset; provide a fresh unauthenticated manager.
+    if (!instance) {
+      const freshManager = new NumbersApiManager();
+      instance = freshManager;
+      await freshManager.initialize();
+    }
   }
   return instance;
 }
