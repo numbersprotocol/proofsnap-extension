@@ -238,27 +238,34 @@ async function handleSelectionComplete(payload: any) {
     // Crop and add watermark via offscreen document
     await ensureOffscreenDocument();
 
-    const response = await chrome.runtime.sendMessage({
-      type: 'ADD_WATERMARK',
-      payload: {
-        dataUrl,
-        timestamp: captureTime.toISOString(),
-        width: coordinates.width,
-        height: coordinates.height,
-        timestampSize: settings.timestampSize,
-        timestampFormat: settings.timestampFormat,
-        timestampOpacity: settings.timestampOpacity,
-        timestampPosition: settings.timestampPosition,
-        includeTimestamp: settings.includeTimestamp,
-        crop: coordinates,
-      },
-    });
+    const watermarkResponse = await Promise.race([
+      chrome.runtime.sendMessage({
+        type: 'ADD_WATERMARK',
+        payload: {
+          dataUrl,
+          timestamp: captureTime.toISOString(),
+          width: coordinates.width,
+          height: coordinates.height,
+          timestampSize: settings.timestampSize,
+          timestampFormat: settings.timestampFormat,
+          timestampOpacity: settings.timestampOpacity,
+          timestampPosition: settings.timestampPosition,
+          includeTimestamp: settings.includeTimestamp,
+          outputFormat: settings.screenshotFormat === 'jpeg' ? 'jpeg' : 'png',
+          outputQuality: settings.screenshotFormat === 'jpeg' ? settings.screenshotQuality / 100 : undefined,
+          crop: coordinates,
+        },
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Offscreen operation timed out')), 30000)
+      ),
+    ]) as any;
 
-    if (response.success) {
-      dataUrl = response.data.dataUrl;
+    if (watermarkResponse.success) {
+      dataUrl = watermarkResponse.data.dataUrl;
       console.log('✅ Selection cropped and watermark added');
     } else {
-      console.warn('Failed to process selection:', response.error);
+      console.warn('Failed to process selection:', watermarkResponse.error);
     }
 
     // Get location if enabled via offscreen document
@@ -418,6 +425,20 @@ async function handleScreenshotCapture(
       return await handleSelectionCapture(tab);
     }
 
+    // Check for restricted URLs that cannot be captured
+    const restrictedPatterns = [
+      /^chrome:\/\//,
+      /^chrome-extension:\/\//,
+      /^https:\/\/chrome\.google\.com\/webstore/,
+      /^about:/,
+      /^edge:\/\//,
+    ];
+    if (tab.url && restrictedPatterns.some((re) => re.test(tab.url!))) {
+      throw new Error(
+        'Screenshots cannot be taken on this page. Please navigate to a regular website and try again.'
+      );
+    }
+
     // Capture timestamp at the very start for consistency
     const captureTime = new Date();
 
@@ -439,26 +460,33 @@ async function handleScreenshotCapture(
     try {
       await ensureOffscreenDocument();
 
-      const response = await chrome.runtime.sendMessage({
-        type: 'ADD_WATERMARK',
-        payload: {
-          dataUrl,
-          timestamp: captureTime.toISOString(),
-          width,
-          height,
-          timestampSize: settings.timestampSize,
-          timestampFormat: settings.timestampFormat,
-          timestampOpacity: settings.timestampOpacity,
-          timestampPosition: settings.timestampPosition,
-          includeTimestamp: settings.includeTimestamp,
-        },
-      });
+      const watermarkResponse = await Promise.race([
+        chrome.runtime.sendMessage({
+          type: 'ADD_WATERMARK',
+          payload: {
+            dataUrl,
+            timestamp: captureTime.toISOString(),
+            width,
+            height,
+            timestampSize: settings.timestampSize,
+            timestampFormat: settings.timestampFormat,
+            timestampOpacity: settings.timestampOpacity,
+            timestampPosition: settings.timestampPosition,
+            includeTimestamp: settings.includeTimestamp,
+            outputFormat: settings.screenshotFormat === 'jpeg' ? 'jpeg' : 'png',
+            outputQuality: settings.screenshotFormat === 'jpeg' ? settings.screenshotQuality / 100 : undefined,
+          },
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Offscreen operation timed out')), 30000)
+        ),
+      ]) as any;
 
-      if (response.success) {
-        dataUrl = response.data.dataUrl;
+      if (watermarkResponse.success) {
+        dataUrl = watermarkResponse.data.dataUrl;
         console.log('✅ Watermark added successfully');
       } else {
-        console.warn('Failed to add watermark:', response.error);
+        console.warn('Failed to add watermark:', watermarkResponse.error);
       }
     } catch (error) {
       console.error('Watermark error:', error);

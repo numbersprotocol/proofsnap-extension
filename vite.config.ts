@@ -35,6 +35,7 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
+    sourcemap: 'hidden',
     rollupOptions: {
       input: {
         popup: resolve(__dirname, 'src/popup/popup.html'),

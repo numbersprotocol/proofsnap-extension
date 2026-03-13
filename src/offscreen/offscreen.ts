@@ -16,6 +16,8 @@ interface WatermarkPayload {
   timestampOpacity?: number;
   timestampPosition?: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
   includeTimestamp?: boolean;
+  outputFormat?: 'png' | 'jpeg' | 'webp';
+  outputQuality?: number;
   // Crop coordinates (optional)
   crop?: {
     x: number;
@@ -151,19 +153,31 @@ async function addWatermark(payload: WatermarkPayload): Promise<{ dataUrl: strin
 
   // Add timestamp if enabled
   if (payload.includeTimestamp !== false) {
+    ctx.save();
     drawTimestamp(ctx, payload.timestamp, {
       size: payload.timestampSize,
       format: payload.timestampFormat,
       opacity: payload.timestampOpacity,
       position: payload.timestampPosition,
     });
+    ctx.restore();
   }
 
   // Always draw logo
+  ctx.save();
   await drawLogo(ctx, canvas.width, canvas.height);
+  ctx.restore();
 
-  // Convert to data URL
-  return { dataUrl: canvas.toDataURL('image/png') };
+  // Convert to data URL using the requested format
+  const mimeType =
+    payload.outputFormat === 'jpeg' ? 'image/jpeg' :
+    payload.outputFormat === 'webp' ? 'image/webp' :
+    'image/png';
+  const quality =
+    (payload.outputFormat === 'jpeg' || payload.outputFormat === 'webp')
+      ? (payload.outputQuality ?? 0.9)
+      : undefined;
+  return { dataUrl: canvas.toDataURL(mimeType, quality) };
 }
 
 /**

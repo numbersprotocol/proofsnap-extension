@@ -64,9 +64,9 @@ const zipPath = join(distZipDir, zipName);
 
 console.log(`Creating ${zipName}...`);
 
-// Use native zip command with absolute path
+// Use native zip command with absolute path, excluding source maps
 try {
-  execSync(`zip -r "${zipPath}" .`, {
+  execSync(`zip -r "${zipPath}" . --exclude "*.map"`, {
     cwd: join(rootDir, 'dist'),
     stdio: 'inherit'
   });

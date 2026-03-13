@@ -3,7 +3,7 @@
  * Handles asset uploads to Numbers Protocol blockchain
  */
 
-import { ApiClient } from './ApiClient';
+import { ApiClient, ApiError } from './ApiClient';
 import { storageService } from './StorageService';
 import { indexedDBService } from './IndexedDBService';
 import type { Asset } from './IndexedDBService';
@@ -236,20 +236,79 @@ export class UploadService {
     console.log('Starting upload for asset:', asset.id);
 
     await this.updateAssetStatusToUploading(asset);
-    const progressInterval = this.startProgressSimulation(asset);
 
     try {
       const formData = await this.prepareUploadFormData(asset);
-      const result = await this.apiClient.postWithAuth<any>('/assets/', formData);
+      const result = await this.uploadWithProgress(asset, formData);
 
-      clearInterval(progressInterval);
       console.log('Upload successful:', result);
-
       await this.handleUploadSuccess(asset, result);
     } catch (error) {
-      clearInterval(progressInterval);
       throw error;
     }
+  }
+
+  /**
+   * Upload FormData using XMLHttpRequest for real progress reporting
+   */
+  private uploadWithProgress(asset: Asset, formData: FormData): Promise<any> {
+    return new Promise((resolve, reject) => {
+      const authToken = this.apiClient.getAuthToken();
+      const url = `${this.apiClient.getBaseUrl()}/assets/`;
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', url, true);
+      if (authToken) {
+        xhr.setRequestHeader('Authorization', `token ${authToken}`);
+      }
+
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const progress = event.loaded / event.total;
+          asset.metadata = { ...asset.metadata, uploadProgress: progress };
+          this.emitProgress({
+            assetId: asset.id,
+            progress,
+            status: 'uploading',
+          });
+        }
+      };
+
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            resolve(JSON.parse(xhr.responseText));
+          } catch {
+            resolve({});
+          }
+        } else {
+          let errorData: any = {};
+          try {
+            errorData = JSON.parse(xhr.responseText);
+          } catch {
+            // ignore parse error
+          }
+          reject(
+            new ApiError(
+              errorData?.error?.message || `HTTP ${xhr.status}: ${xhr.statusText}`,
+              xhr.status,
+              errorData
+            )
+          );
+        }
+      };
+
+      xhr.onerror = () => {
+        reject(new ApiError('Network error occurred', 0));
+      };
+
+      xhr.ontimeout = () => {
+        reject(new ApiError('Request timeout', 408));
+      };
+
+      xhr.timeout = 60000;
+      xhr.send(formData);
+    });
   }
 
   /**
@@ -279,24 +338,6 @@ export class UploadService {
   }
 
   /**
-   * Start simulating progress updates for an uploading asset
-   */
-  private startProgressSimulation(asset: Asset): ReturnType<typeof setInterval> {
-    return setInterval(() => {
-      const currentProgress = asset.metadata?.uploadProgress || 0;
-      if (currentProgress < 0.9) {
-        const newProgress = currentProgress + 0.1;
-        asset.metadata = { ...asset.metadata, uploadProgress: newProgress };
-        this.emitProgress({
-          assetId: asset.id,
-          progress: newProgress,
-          status: 'uploading',
-        });
-      }
-    }, 500);
-  }
-
-  /**
    * Prepare FormData for asset upload
    */
   private async prepareUploadFormData(asset: Asset): Promise<FormData> {
@@ -306,7 +347,7 @@ export class UploadService {
     const filename = `screenshot_${Date.now()}.${asset.mimeType.split('/')[1]}`;
     formData.append('asset_file', blob, filename);
 
-    const signedMetadata = this.createSignedMetadata(asset);
+    const signedMetadata = this.createMetadataPayload(asset);
     formData.append('signed_metadata', signedMetadata);
 
     if (asset.metadata?.headline) {
@@ -444,9 +485,9 @@ export class UploadService {
   }
 
   /**
-   * Create signed metadata for upload
+   * Create metadata payload for upload
    */
-  private createSignedMetadata(asset: Asset): string {
+  private createMetadataPayload(asset: Asset): string {
     const metadata: any = {
       spec_version: '2.0.0',
       recorder: 'ProofSnap Browser Extension',

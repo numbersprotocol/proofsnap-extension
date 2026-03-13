@@ -89,6 +89,11 @@ if (!(window as any).__proofSnapSelectionActive) {
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
     document.addEventListener('keydown', handleKeyDown);
+
+    // Touch event support for touchscreen devices
+    overlay.addEventListener('touchstart', handleTouchStart, { passive: false });
+    document.addEventListener('touchmove', handleTouchMove, { passive: false });
+    document.addEventListener('touchend', handleTouchEnd);
   }
 
   /**
@@ -176,6 +181,90 @@ if (!(window as any).__proofSnapSelectionActive) {
   }
 
   /**
+   * Handle touch start - begin selection on touchscreen devices
+   */
+  function handleTouchStart(e: TouchEvent): void {
+    e.preventDefault();
+    const touch = e.touches[0];
+    isSelecting = true;
+    startX = touch.clientX;
+    startY = touch.clientY;
+
+    if (selectionBox) {
+      selectionBox.style.display = 'block';
+      selectionBox.style.left = `${startX}px`;
+      selectionBox.style.top = `${startY}px`;
+      selectionBox.style.width = '0px';
+      selectionBox.style.height = '0px';
+    }
+
+    if (overlay) {
+      overlay.style.background = 'transparent';
+    }
+  }
+
+  /**
+   * Handle touch move - update selection box on touchscreen devices
+   */
+  function handleTouchMove(e: TouchEvent): void {
+    e.preventDefault();
+    if (!isSelecting || !selectionBox) return;
+
+    const touch = e.touches[0];
+    const currentX = touch.clientX;
+    const currentY = touch.clientY;
+
+    const left = Math.min(startX, currentX);
+    const top = Math.min(startY, currentY);
+    const width = Math.abs(currentX - startX);
+    const height = Math.abs(currentY - startY);
+
+    selectionBox.style.left = `${left}px`;
+    selectionBox.style.top = `${top}px`;
+    selectionBox.style.width = `${width}px`;
+    selectionBox.style.height = `${height}px`;
+  }
+
+  /**
+   * Handle touch end - complete selection on touchscreen devices
+   */
+  function handleTouchEnd(e: TouchEvent): void {
+    if (!isSelecting) return;
+
+    isSelecting = false;
+
+    const touch = e.changedTouches[0];
+    const currentX = touch.clientX;
+    const currentY = touch.clientY;
+
+    const left = Math.min(startX, currentX);
+    const top = Math.min(startY, currentY);
+    const width = Math.abs(currentX - startX);
+    const height = Math.abs(currentY - startY);
+
+    if (width < 10 || height < 10) {
+      cleanup();
+      sendResponse({ cancelled: true, reason: 'Selection too small' });
+      return;
+    }
+
+    const dpr = window.devicePixelRatio || 1;
+    const coordinates: SelectionCoordinates = {
+      x: Math.round(left * dpr),
+      y: Math.round(top * dpr),
+      width: Math.round(width * dpr),
+      height: Math.round(height * dpr),
+    };
+
+    cleanup();
+    sendResponse({
+      cancelled: false,
+      coordinates,
+      viewportCoordinates: { x: left, y: top, width, height },
+    });
+  }
+
+  /**
    * Handle key down - cancel on Escape
    */
   function handleKeyDown(e: KeyboardEvent): void {
@@ -202,6 +291,12 @@ if (!(window as any).__proofSnapSelectionActive) {
     document.removeEventListener('mousemove', handleMouseMove);
     document.removeEventListener('mouseup', handleMouseUp);
     document.removeEventListener('keydown', handleKeyDown);
+
+    if (overlay) {
+      overlay.removeEventListener('touchstart', handleTouchStart);
+    }
+    document.removeEventListener('touchmove', handleTouchMove);
+    document.removeEventListener('touchend', handleTouchEnd);
 
     const elements = [
       'proofsnap-selection-overlay',

@@ -8,6 +8,7 @@ const AuthForm: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
+    const [resetSent, setResetSent] = useState(false);
 
     // Check for persisted errors (e.g. from background Google Auth)
     useEffect(() => {
@@ -35,6 +36,25 @@ const AuthForm: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
         } catch (err: any) {
             console.error('Auth error:', err);
             setError(err.message || (isLoginMode ? 'Login failed.' : 'Signup failed.'));
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleForgotPassword = async () => {
+        if (!email) {
+            setError('Enter your email address above to receive a password reset link.');
+            return;
+        }
+        setLoading(true);
+        setError('');
+        try {
+            const numbersApi = await getNumbersApi();
+            await numbersApi.auth.resetPassword({ email });
+            setResetSent(true);
+        } catch (err: any) {
+            console.error('Password reset error:', err);
+            setError(err.message || 'Failed to send reset email.');
         } finally {
             setLoading(false);
         }
@@ -113,7 +133,24 @@ const AuthForm: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
                 <button type="submit" disabled={loading} className="auth-submit-button">
                     {loading ? (isLoginMode ? 'Logging in...' : 'Signing up...') : (isLoginMode ? 'Login' : 'Sign Up')}
                 </button>
+
+                {isLoginMode && (
+                    <button
+                        type="button"
+                        onClick={handleForgotPassword}
+                        disabled={loading}
+                        className="auth-forgot-password"
+                    >
+                        Forgot Password?
+                    </button>
+                )}
             </form>
+
+            {resetSent && (
+                <div className="auth-reset-sent">
+                    Password reset email sent! Check your inbox.
+                </div>
+            )}
 
             <div className="auth-divider">
                 <div className="auth-divider-line">

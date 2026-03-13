@@ -642,8 +642,28 @@ function AssetThumbnail({ asset, onUpload, huntMode }: { asset: Asset; onUpload?
     }
   };
 
+  const statusLabels: Record<string, string> = {
+    draft: 'ready to upload',
+    uploading: 'uploading',
+    uploaded: 'verified on blockchain',
+    failed: asset.metadata?.errorType === 'insufficient_credits' ? 'upload failed: insufficient credits' : 'upload failed',
+  };
+
   return (
-    <div className="asset-thumbnail">
+    <div
+      className="asset-thumbnail"
+      role="button"
+      tabIndex={0}
+      aria-label={`Screenshot from ${date.toLocaleDateString()}${asset.sourceWebsite ? ` on ${asset.sourceWebsite.title || new URL(asset.sourceWebsite.url).hostname}` : ''}, ${statusLabels[asset.status] || asset.status}`}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          if (asset.status === 'draft' || asset.status === 'failed') {
+            onUpload?.(asset.id);
+          }
+        }
+      }}
+    >
       <img src={asset.uri} alt="Screenshot" />
       <div className="asset-info">
         <div className="asset-meta">
@@ -652,7 +672,7 @@ function AssetThumbnail({ asset, onUpload, huntMode }: { asset: Asset; onUpload?
             try {
               const hostname = new URL(asset.sourceWebsite.url).hostname;
               return (
-                <div className="asset-website" title={asset.sourceWebsite.url} style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                <div className="asset-website" title={asset.sourceWebsite.url}>
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <circle cx="12" cy="12" r="10"></circle>
                     <line x1="2" y1="12" x2="22" y2="12"></line>
@@ -667,10 +687,10 @@ function AssetThumbnail({ asset, onUpload, huntMode }: { asset: Asset; onUpload?
           })()}
         </div>
         {asset.status === 'uploaded' && asset.metadata?.nid ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <div className="asset-status-group">
             <div
               className="asset-status blockchain-link"
-              style={{ backgroundColor: statusColors[asset.status], display: 'flex', alignItems: 'center', gap: '4px' }}
+              style={{ backgroundColor: statusColors[asset.status] }}
               onClick={handleViewOnBlockchain}
               title="View on blockchain"
             >
@@ -683,26 +703,11 @@ function AssetThumbnail({ asset, onUpload, huntMode }: { asset: Asset; onUpload?
             </div>
             {/* Hunt Mode share buttons */}
             {huntMode?.enabled && (
-              <div className="hunt-share-buttons" style={{ display: 'flex', gap: '4px' }}>
+              <div className="hunt-share-buttons">
                 <button
                   className="share-btn share-x"
                   onClick={handleShareToX}
                   title="Share on X"
-                  style={{
-                    flex: 1,
-                    padding: '4px 6px',
-                    border: 'none',
-                    borderRadius: '4px',
-                    background: '#000',
-                    color: '#fff',
-                    fontSize: '10px',
-                    fontWeight: 500,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '3px',
-                  }}
                 >
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                     <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
@@ -713,18 +718,6 @@ function AssetThumbnail({ asset, onUpload, huntMode }: { asset: Asset; onUpload?
                   className="share-btn share-copy"
                   onClick={handleCopyLink}
                   title="Copy link"
-                  style={{
-                    padding: '4px 6px',
-                    border: 'none',
-                    borderRadius: '4px',
-                    background: '#e5e5e7',
-                    color: '#1d1d1f',
-                    fontSize: '10px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
                 >
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
@@ -737,7 +730,7 @@ function AssetThumbnail({ asset, onUpload, huntMode }: { asset: Asset; onUpload?
         ) : (
           <div
             className="asset-status"
-            style={{ backgroundColor: statusColors[asset.status] || '#808080', display: 'flex', alignItems: 'center', gap: '4px' }}
+            style={{ backgroundColor: statusColors[asset.status] || '#808080' }}
             onClick={handleUploadClick}
             title={
               asset.status === 'draft' ? 'Click to upload' :
@@ -882,120 +875,30 @@ function SharePromptModal({
   };
 
   return (
-    <div className="share-modal-overlay" style={{
-      position: 'fixed',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      background: 'rgba(0, 0, 0, 0.6)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      zIndex: 1000,
-      padding: '20px',
-    }}>
-      <div className="share-modal" style={{
-        background: 'white',
-        borderRadius: '16px',
-        padding: '24px',
-        maxWidth: '300px',
-        width: '100%',
-        textAlign: 'center',
-        boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
-      }}>
-        <div style={{ marginBottom: '16px' }}>
-          <span style={{ fontSize: '48px' }}>🎯</span>
-        </div>
-        <h3 style={{
-          margin: '0 0 8px 0',
-          fontSize: '18px',
-          fontWeight: 600,
-          color: '#1d1d1f',
-        }}>
-          Snap Verified!
-        </h3>
-        <p style={{
-          margin: '0 0 20px 0',
-          fontSize: '14px',
-          color: '#86868b',
-          lineHeight: 1.5,
-        }}>
+    <div className="share-modal-overlay">
+      <div className="share-modal">
+        <div className="share-modal-icon">🎯</div>
+        <h3 className="share-modal-title">Snap Verified!</h3>
+        <p className="share-modal-subtitle">
           Share your verified snap on X to participate in the AI Hunt event!
         </p>
 
         {/* Preview image - only show if we have it */}
         {asset.uri && (
-          <div style={{
-            marginBottom: '16px',
-            borderRadius: '8px',
-            overflow: 'hidden',
-            border: '1px solid #e5e5e7',
-          }}>
-            <img
-              src={asset.uri}
-              alt="Screenshot"
-              style={{
-                width: '100%',
-                height: '80px',
-                objectFit: 'cover',
-              }}
-            />
+          <div className="share-modal-preview">
+            <img src={asset.uri} alt="Screenshot" />
           </div>
         )}
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          <button
-            onClick={handleShareToX}
-            style={{
-              width: '100%',
-              padding: '12px 16px',
-              border: 'none',
-              borderRadius: '8px',
-              background: '#000',
-              color: '#fff',
-              fontSize: '14px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '8px',
-              transition: 'transform 0.2s, box-shadow 0.2s',
-            }}
-            onMouseOver={(e) => {
-              e.currentTarget.style.transform = 'translateY(-1px)';
-              e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
-            }}
-            onMouseOut={(e) => {
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = 'none';
-            }}
-          >
+        <div className="share-modal-actions">
+          <button onClick={handleShareToX} className="share-modal-btn-x">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
               <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
             </svg>
             Share on X
           </button>
 
-          <button
-            onClick={handleCopyLink}
-            style={{
-              width: '100%',
-              padding: '12px 16px',
-              border: '1px solid #d2d2d7',
-              borderRadius: '8px',
-              background: '#fff',
-              color: '#1d1d1f',
-              fontSize: '14px',
-              fontWeight: 500,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '8px',
-            }}
-          >
+          <button onClick={handleCopyLink} className="share-modal-btn-copy">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
               <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
@@ -1003,19 +906,7 @@ function SharePromptModal({
             Copy Verification Link
           </button>
 
-          <button
-            onClick={onClose}
-            style={{
-              width: '100%',
-              padding: '10px',
-              border: 'none',
-              borderRadius: '8px',
-              background: 'transparent',
-              color: '#86868b',
-              fontSize: '13px',
-              cursor: 'pointer',
-            }}
-          >
+          <button onClick={onClose} className="share-modal-btn-close">
             Maybe Later
           </button>
         </div>

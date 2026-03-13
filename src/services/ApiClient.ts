@@ -45,6 +45,13 @@ export class ApiClient {
   }
 
   /**
+   * Get the base URL for the API
+   */
+  getBaseUrl(): string {
+    return this.baseUrl;
+  }
+
+  /**
    * Set authentication token for subsequent requests
    */
   setAuthToken(token: string) {
