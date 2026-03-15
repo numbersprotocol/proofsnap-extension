@@ -249,9 +249,15 @@ export class StorageService {
   // ==========================================
 
   /**
-   * Clear all storage (useful for logout)
+   * WARNING: Destroys ALL chrome.storage.local data, including user settings
+   * (watermark preferences, Hunt Mode config, capture format, location toggle),
+   * upload queue IDs, and notification dismissal state.
+   *
+   * This is NOT suitable for logout flows — use clearAuth() instead.
+   * Only call this for complete account deletion or factory-reset scenarios
+   * where intentional, total data loss is acceptable.
    */
-  async clearAll(): Promise<void> {
+  async dangerousClearAll(): Promise<void> {
     await chrome.storage.local.clear();
   }
 }
