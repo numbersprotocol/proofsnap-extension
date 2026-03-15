@@ -306,8 +306,8 @@ export class UploadService {
     const filename = `screenshot_${Date.now()}.${asset.mimeType.split('/')[1]}`;
     formData.append('asset_file', blob, filename);
 
-    const signedMetadata = this.createSignedMetadata(asset);
-    formData.append('signed_metadata', signedMetadata);
+    const metadata = await this.createMetadata(asset, blob);
+    formData.append('metadata', metadata);
 
     if (asset.metadata?.headline) {
       formData.append('headline', asset.metadata.headline);
@@ -444,10 +444,25 @@ export class UploadService {
   }
 
   /**
-   * Create signed metadata for upload
+   * Compute SHA-256 hash of a Blob using the Web Crypto API.
+   * Returns a lowercase hex-encoded digest string.
    */
-  private createSignedMetadata(asset: Asset): string {
+  private async computeSha256(blob: Blob): Promise<string> {
+    const arrayBuffer = await blob.arrayBuffer();
+    const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  /**
+   * Create metadata for upload, including a SHA-256 hash of the asset blob
+   * to cryptographically bind the image to its provenance metadata.
+   */
+  private async createMetadata(asset: Asset, blob: Blob): Promise<string> {
+    const assetSha256 = await this.computeSha256(blob);
+
     const metadata: any = {
+      asset_sha256: assetSha256,
       spec_version: '2.0.0',
       recorder: 'ProofSnap Browser Extension',
       created_at: asset.createdAt,
