@@ -1,6 +1,23 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { getNumbersApi } from '../services/NumbersApiManager';
 import { storageService } from '../services/StorageService';
+
+/**
+ * Evaluate password strength (0 = too weak, 1 = weak, 2 = fair, 3 = strong, 4 = very strong)
+ */
+function getPasswordStrength(password: string): { score: number; label: string } {
+    if (password.length === 0) return { score: 0, label: '' };
+    let score = 0;
+    if (password.length >= 8) score++;
+    if (/[A-Z]/.test(password)) score++;
+    if (/[a-z]/.test(password)) score++;
+    if (/[0-9]/.test(password)) score++;
+    if (/[^A-Za-z0-9]/.test(password)) score++;
+    const labels = ['', 'Very Weak', 'Weak', 'Fair', 'Strong', 'Very Strong'];
+    return { score, label: labels[score] || '' };
+}
+
+const RATE_LIMIT_DELAYS = [0, 5, 10, 30, 60]; // Delay in seconds after N login failures: [0th=0s, 1st=5s, 2nd=10s, 3rd=30s, 4th+=60s]
 
 const AuthForm: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
     const [isLoginMode, setIsLoginMode] = useState(true);
@@ -8,6 +25,10 @@ const AuthForm: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
+    const [loginFailures, setLoginFailures] = useState(0);
+    const [rateLimitUntil, setRateLimitUntil] = useState<number | null>(null);
+    const [rateLimitRemaining, setRateLimitRemaining] = useState(0);
+    const rateLimitTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
     // Check for persisted errors (e.g. from background Google Auth)
     useEffect(() => {
@@ -18,8 +39,38 @@ const AuthForm: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
         });
     }, []);
 
+    // Countdown timer for rate limiting
+    useEffect(() => {
+        if (rateLimitUntil === null) return;
+        const tick = () => {
+            const remaining = Math.ceil((rateLimitUntil - Date.now()) / 1000);
+            if (remaining <= 0) {
+                setRateLimitUntil(null);
+                setRateLimitRemaining(0);
+                if (rateLimitTimer.current) {
+                    clearInterval(rateLimitTimer.current);
+                    rateLimitTimer.current = null;
+                }
+            } else {
+                setRateLimitRemaining(remaining);
+            }
+        };
+        tick();
+        rateLimitTimer.current = setInterval(tick, 1000);
+        return () => {
+            if (rateLimitTimer.current) clearInterval(rateLimitTimer.current);
+        };
+    }, [rateLimitUntil]);
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+
+        // Enforce rate limiting on login
+        if (isLoginMode && rateLimitUntil !== null && Date.now() < rateLimitUntil) {
+            setError(`Too many failed attempts. Please wait ${rateLimitRemaining} second${rateLimitRemaining === 1 ? '' : 's'} before trying again.`);
+            return;
+        }
+
         setLoading(true);
         setError('');
 
@@ -28,6 +79,7 @@ const AuthForm: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
 
             if (isLoginMode) {
                 await numbersApi.login(email, password);
+                setLoginFailures(0);
             } else {
                 await numbersApi.signup(email, password);
             }
@@ -35,6 +87,17 @@ const AuthForm: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
         } catch (err: any) {
             console.error('Auth error:', err);
             setError(err.message || (isLoginMode ? 'Login failed.' : 'Signup failed.'));
+
+            // Apply progressive rate limiting on login failures
+            if (isLoginMode) {
+                const newFailures = loginFailures + 1;
+                setLoginFailures(newFailures);
+                const delayIndex = Math.min(newFailures, RATE_LIMIT_DELAYS.length - 1);
+                const delaySec = RATE_LIMIT_DELAYS[delayIndex];
+                if (delaySec > 0) {
+                    setRateLimitUntil(Date.now() + delaySec * 1000);
+                }
+            }
         } finally {
             setLoading(false);
         }
@@ -75,6 +138,9 @@ const AuthForm: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
         }
     };
 
+    const passwordStrength = !isLoginMode ? getPasswordStrength(password) : null;
+    const isRateLimited = isLoginMode && rateLimitUntil !== null && Date.now() < rateLimitUntil;
+
     return (
         <div className="auth-container">
             <div className="auth-tabs">
@@ -109,9 +175,27 @@ const AuthForm: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
                     required
                     className="auth-input"
                 />
+                {!isLoginMode && passwordStrength && passwordStrength.score > 0 && (
+                    <div className="password-strength">
+                        <div
+                            className={`password-strength-bar strength-${passwordStrength.score}`}
+                            style={{ width: `${passwordStrength.score * 20}%` }}
+                        />
+                        <span className="password-strength-label">{passwordStrength.label}</span>
+                    </div>
+                )}
+                {!isLoginMode && (
+                    <p className="password-requirements">
+                        Password must be at least 8 characters and include uppercase, lowercase, number, and special character.
+                    </p>
+                )}
 
-                <button type="submit" disabled={loading} className="auth-submit-button">
-                    {loading ? (isLoginMode ? 'Logging in...' : 'Signing up...') : (isLoginMode ? 'Login' : 'Sign Up')}
+                <button type="submit" disabled={loading || isRateLimited} className="auth-submit-button">
+                    {isRateLimited
+                        ? `Wait ${rateLimitRemaining}s`
+                        : loading
+                            ? (isLoginMode ? 'Logging in...' : 'Signing up...')
+                            : (isLoginMode ? 'Login' : 'Sign Up')}
                 </button>
             </form>
 

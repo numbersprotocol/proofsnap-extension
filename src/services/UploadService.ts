@@ -209,6 +209,17 @@ export class UploadService {
       return;
     }
 
+    // Pre-flight auth token validation before processing any item
+    if (!this.apiClient.getAuthToken()) {
+      console.warn('Upload queue paused: no auth token available');
+      this.setPaused(true);
+      chrome.runtime.sendMessage({
+        type: 'AUTH_STATUS_CHANGED',
+        payload: { authenticated: false, reason: 'no_token' },
+      }).catch(() => {});
+      return;
+    }
+
     this.isUploading = true;
     const asset = this.uploadQueue.shift();
 
@@ -389,10 +400,22 @@ export class UploadService {
    */
   private async handleUploadError(asset: Asset, error: any): Promise<void> {
     const errorMessage = error?.message || 'Upload failed';
+
+    // Detect authentication failure (401 Unauthorized)
+    if (error?.statusCode === 401) {
+      console.warn('Authentication failure detected, pausing upload queue');
+      this.setPaused(true);
+      chrome.runtime.sendMessage({
+        type: 'AUTH_STATUS_CHANGED',
+        payload: { authenticated: false, reason: 'token_expired' },
+      }).catch(() => {});
+    }
     
     // Check for insufficient balance
-    let errorType;
-    if (this.isInsufficientBalanceError(error)) {
+    let errorType: string | undefined;
+    if (error?.statusCode === 401) {
+      errorType = 'auth_expired';
+    } else if (this.isInsufficientBalanceError(error)) {
       console.warn('Insufficient balance detected, pausing uploads');
       this.setPaused(true);
       errorType = 'insufficient_credits';

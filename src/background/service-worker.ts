@@ -271,7 +271,7 @@ async function handleSelectionComplete(payload: any) {
         });
         if (locationResponse.success && locationResponse.data) {
           gpsLocation = locationResponse.data;
-          console.log('✅ Geolocation captured:', gpsLocation!.latitude, gpsLocation!.longitude);
+          console.log('✅ Geolocation captured');
         } else {
           console.warn('⚠️ Could not get geolocation:', locationResponse.error || 'Permission denied or unavailable');
         }
@@ -295,7 +295,7 @@ async function handleSelectionComplete(payload: any) {
     }
 
     // Store screenshot as asset
-    const assetId = `screenshot_${captureTime.getTime()}_${Math.random().toString(36).slice(2, 11)}`;
+    const assetId = `screenshot_${captureTime.getTime()}_${crypto.randomUUID().slice(0, 8)}`;
 
     const asset = {
       id: assetId,
@@ -475,7 +475,7 @@ async function handleScreenshotCapture(
         });
         if (locationResponse.success && locationResponse.data) {
           gpsLocation = locationResponse.data;
-          console.log('✅ Geolocation captured:', gpsLocation!.latitude, gpsLocation!.longitude);
+          console.log('✅ Geolocation captured');
         } else {
           console.warn('⚠️ Could not get geolocation:', locationResponse.error || 'Permission denied or unavailable');
         }
@@ -501,7 +501,7 @@ async function handleScreenshotCapture(
     }
 
     // Store screenshot as asset
-    const assetId = `screenshot_${captureTime.getTime()}_${Math.random().toString(36).slice(2, 11)}`;
+    const assetId = `screenshot_${captureTime.getTime()}_${crypto.randomUUID().slice(0, 8)}`;
 
     const asset = {
       id: assetId,
