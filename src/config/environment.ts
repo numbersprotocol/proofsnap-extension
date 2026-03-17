@@ -22,13 +22,22 @@ export const config: EnvironmentConfig = {
  */
 export function logEnvironmentInfo() {
   if (config.enableLogging) {
-    import('../utils/logger').then(({ createLogger }) => {
-      const logger = createLogger('Environment');
-      logger.info('Environment Info', {
-        apiUrl: config.apiUrl,
-        enableLogging: config.enableLogging,
-        timeout: config.timeout,
+    import('../utils/logger')
+      .then(({ createLogger }) => {
+        const logger = createLogger('Environment');
+        logger.info('Environment Info', {
+          apiUrl: config.apiUrl,
+          enableLogging: config.enableLogging,
+          timeout: config.timeout,
+        });
+      })
+      .catch(() => {
+        // Fallback if logger module fails to load
+        console.info('[Environment] Environment Info:', {
+          apiUrl: config.apiUrl,
+          enableLogging: config.enableLogging,
+          timeout: config.timeout,
+        });
       });
-    });
   }
 }

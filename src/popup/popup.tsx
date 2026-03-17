@@ -133,7 +133,7 @@ function PopupApp() {
         // User cancelled selection - do nothing
         logger.debug('Screenshot cancelled');
       } else {
-        logger.error('Capture failed', undefined, { error: response.error });
+        logger.error('Capture failed', new Error(response.error));
         alert('Failed to capture screenshot: ' + response.error);
       }
     } catch (error) {

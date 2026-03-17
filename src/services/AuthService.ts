@@ -126,7 +126,7 @@ export class AuthService {
           if (idToken) {
             resolve(idToken);
           } else {
-            logger.error('No id_token found in response', undefined, { responseUrl });
+            logger.error('No id_token found in response', { responseUrl });
             reject('Failed to retrieve ID token from Google');
           }
         }
