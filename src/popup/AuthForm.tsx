@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { getNumbersApi } from '../services/NumbersApiManager';
 import { storageService } from '../services/StorageService';
+import { createLogger } from '../utils/logger';
+
+const logger = createLogger('AuthForm');
 
 const AuthForm: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
     const [isLoginMode, setIsLoginMode] = useState(true);
@@ -33,7 +36,7 @@ const AuthForm: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
             }
             onLogin();
         } catch (err: any) {
-            console.error('Auth error:', err);
+            logger.error('Auth error', err);
             setError(err.message || (isLoginMode ? 'Login failed.' : 'Signup failed.'));
         } finally {
             setLoading(false);
@@ -66,7 +69,7 @@ const AuthForm: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
             // so the user will simply re-open the popup and be logged in.
             onLogin();
         } catch (err: any) {
-            console.error('Google Auth error:', err);
+            logger.error('Google Auth error', err);
             // If popup was closed during auth, this error won't be seen by user,
             // but it's good for debugging if inspecting.
             setError(err.message || 'Google Authentication failed.');

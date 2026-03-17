@@ -6,7 +6,10 @@
 import { useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import { storageService, StoredSettings } from '../services/StorageService';
+import { createLogger } from '../utils/logger';
 import './options.css';
+
+const logger = createLogger('Options');
 
 /**
  * Watermark Settings Component
@@ -463,7 +466,7 @@ function OptionsApp() {
       const storedSettings = await storageService.getSettings();
       setSettings(storedSettings);
     } catch (error) {
-      console.error('Failed to load settings:', error);
+      logger.error('Failed to load settings', error);
     } finally {
       setLoading(false);
     }
@@ -484,7 +487,7 @@ function OptionsApp() {
         setTimeout(() => savedMessage.classList.remove('show'), 2000);
       }
     } catch (error) {
-      console.error('Failed to save settings:', error);
+      logger.error('Failed to save settings', error);
       alert('Failed to save settings');
     }
   }

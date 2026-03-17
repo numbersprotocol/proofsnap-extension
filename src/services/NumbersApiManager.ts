@@ -9,6 +9,9 @@ import { AuthService } from './AuthService';
 import { indexedDBService } from './IndexedDBService';
 import { storageService } from './StorageService';
 import { UploadService } from './UploadService';
+import { createLogger } from '../utils/logger';
+
+const logger = createLogger('NumbersApiManager');
 
 export class NumbersApiManager {
   private apiClient: ApiClient;
@@ -122,7 +125,7 @@ export class NumbersApiManager {
           username: user.username,
         });
 
-        console.log('Token validated successfully for user:', user.email);
+        logger.info('Token validated successfully', { email: user.email });
       } catch (error: unknown) {
         const statusCode = error instanceof ApiError ? error.statusCode : undefined;
         const errorMessage = error instanceof Error ? error.message : String(error);
@@ -134,15 +137,15 @@ export class NumbersApiManager {
 
         if (isNetworkError || isServerError) {
           // Network or server error - keep the token and use cached user data
-          console.warn('Network/server error during token validation, keeping cached auth:', errorMessage);
+          logger.warn('Network/server error during token validation, keeping cached auth', { errorMessage });
         } else {
           // Authentication error (401, 403, etc.) - token is invalid, clear it
-          console.warn('Token validation failed, clearing authentication:', errorMessage);
+          logger.warn('Token validation failed, clearing authentication', { errorMessage });
           await this.clearAuth();
         }
       }
     } catch (error: unknown) {
-      console.error('Failed to initialize authentication:', error);
+      logger.error('Failed to initialize authentication', error);
     }
   }
 }

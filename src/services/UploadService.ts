@@ -7,6 +7,9 @@ import { ApiClient } from './ApiClient';
 import { storageService } from './StorageService';
 import { indexedDBService } from './IndexedDBService';
 import type { Asset } from './IndexedDBService';
+import { createLogger } from '../utils/logger';
+
+const logger = createLogger('UploadService');
 
 export interface UploadProgress {
   assetId: string;
@@ -50,12 +53,12 @@ export class UploadService {
           }
         }
         this.uploadQueue = assets;
-        console.log(`Restored ${assets.length} assets to upload queue`);
+        logger.info(`Restored ${assets.length} assets to upload queue`);
         // Auto-start processing if not paused
         this.processQueue();
       }
     } catch (error) {
-      console.error('Failed to restore upload queue:', error);
+      logger.error('Failed to restore upload queue', error);
     }
   }
 
@@ -68,7 +71,7 @@ export class UploadService {
     // Check if already in queue
     const exists = this.uploadQueue.find(a => a.id === asset.id);
     if (exists) {
-      console.log('Asset already in upload queue:', asset.id);
+      logger.debug('Asset already in upload queue', { assetId: asset.id });
       return;
     }
 
@@ -98,7 +101,7 @@ export class UploadService {
 
     if (addedCount > 0) {
       await this.saveQueue();
-      console.log(`Added ${addedCount} assets to upload queue`);
+      logger.info(`Added ${addedCount} assets to upload queue`);
 
       // Unpause queue if this is a manual retry
       this.maybeUnpauseForManualRetry(isManualRetry);
@@ -113,7 +116,7 @@ export class UploadService {
    */
   private maybeUnpauseForManualRetry(isManualRetry: boolean): void {
     if (isManualRetry && this.isPaused) {
-      console.log('Unpausing upload queue for manual retry');
+      logger.info('Unpausing upload queue for manual retry');
       this.setPaused(false);
     }
   }
@@ -188,7 +191,7 @@ export class UploadService {
       try {
         callback(assetId);
       } catch (error) {
-        console.error('Error in completion callback:', error);
+        logger.error('Error in completion callback', error);
       }
     });
 
@@ -220,7 +223,7 @@ export class UploadService {
     try {
       await this.uploadAsset(asset);
     } catch (error) {
-      console.error('Upload failed:', error);
+      logger.error('Upload failed', error);
       await this.handleUploadError(asset, error);
     }
 
@@ -233,7 +236,7 @@ export class UploadService {
    * Upload a single asset
    */
   private async uploadAsset(asset: Asset): Promise<void> {
-    console.log('Starting upload for asset:', asset.id);
+    logger.info('Starting upload for asset', { assetId: asset.id });
 
     await this.updateAssetStatusToUploading(asset);
     const progressInterval = this.startProgressSimulation(asset);
@@ -243,7 +246,7 @@ export class UploadService {
       const result = await this.apiClient.postWithAuth<any>('/assets/', formData);
 
       clearInterval(progressInterval);
-      console.log('Upload successful:', result);
+      logger.info('Upload successful', { assetId: asset.id, resultId: result?.id });
 
       await this.handleUploadSuccess(asset, result);
     } catch (error) {
@@ -328,7 +331,7 @@ export class UploadService {
   private async handleUploadSuccess(asset: Asset, result: any): Promise<void> {
     // The API returns 'id' which is the same as the nid/cid
     const nid = result.id || result.cid || result.nid;
-    console.log('[UploadService] handleUploadSuccess called with nid:', nid);
+    logger.debug('handleUploadSuccess called', { nid });
     
     // Update asset with uploaded status and metadata
     asset.status = 'uploaded';
@@ -349,23 +352,21 @@ export class UploadService {
     if (nid) {
       try {
         const settings = await this.metadataStorage.getSettings();
-        console.log('[Hunt Mode] Settings loaded:', { 
-          huntModeEnabled: settings.huntModeEnabled
-        });
+        logger.debug('Hunt Mode settings loaded', { huntModeEnabled: settings.huntModeEnabled });
         
         if (settings.huntModeEnabled) {
-          console.log('[Hunt Mode] Opening share page for nid:', nid);
+          logger.info('Hunt Mode: opening share page', { nid });
           // Open share page in new tab
           const shareUrl = chrome.runtime.getURL(`share.html?nid=${nid}`);
-          console.log('[Hunt Mode] Share URL:', shareUrl);
+          logger.debug('Hunt Mode share URL', { shareUrl });
           await chrome.tabs.create({
             url: shareUrl,
             active: true,
           });
-          console.log('[Hunt Mode] Tab created successfully');
+          logger.debug('Hunt Mode: tab created successfully');
         }
       } catch (error) {
-        console.error('[Hunt Mode] Error opening share page:', error);
+        logger.error('Hunt Mode: error opening share page', error);
       }
     }
 
@@ -378,7 +379,7 @@ export class UploadService {
 
     // Clean up: delete uploaded asset from IndexedDB to save disk space
     await this.assetStorage.deleteAsset(asset.id);
-    console.log('Deleted uploaded asset from local storage:', asset.id);
+    logger.info('Deleted uploaded asset from local storage', { assetId: asset.id });
 
     // Notify completion
     this.emitCompletion(asset.id);
@@ -393,7 +394,7 @@ export class UploadService {
     // Check for insufficient balance
     let errorType;
     if (this.isInsufficientBalanceError(error)) {
-      console.warn('Insufficient balance detected, pausing uploads');
+      logger.warn('Insufficient balance detected, pausing uploads');
       this.setPaused(true);
       errorType = 'insufficient_credits';
 
@@ -493,7 +494,7 @@ export class UploadService {
     const failedAssets = assets.filter(a => a.status === 'failed');
     
     if (failedAssets.length > 0) {
-      console.log(`Retrying ${failedAssets.length} failed uploads`);
+      logger.info(`Retrying ${failedAssets.length} failed uploads`);
       // Pass isManualRetry=true to unpause queue if it was paused
       await this.addMultipleToQueue(failedAssets, true);
     }

@@ -10,7 +10,10 @@ import { storageService } from '../services/StorageService';
 import AuthForm from './AuthForm';
 import InsufficientCreditsNotification from './InsufficientCreditsNotification';
 import { getNumbersApi } from '../services/NumbersApiManager';
+import { createLogger } from '../utils/logger';
 import './popup.css';
+
+const logger = createLogger('Popup');
 
 /**
  * Hunt Mode settings interface for popup
@@ -70,7 +73,7 @@ function PopupApp() {
       // Load Hunt Mode settings
       const settings = await storageService.getSettings();
       const huntModeActive = settings.huntModeEnabled;
-      console.log('[Hunt Mode Popup] Settings:', { huntModeEnabled: settings.huntModeEnabled, huntModeActive });
+      logger.debug('Hunt Mode settings loaded', { huntModeEnabled: settings.huntModeEnabled, huntModeActive });
       setHuntMode({
         enabled: huntModeActive,
         message: settings.huntModeMessage,
@@ -80,7 +83,7 @@ function PopupApp() {
       // Check for pending share prompt (from upload that completed while popup was closed)
       if (huntModeActive) {
         const pendingNid = await storageService.getAndClearPendingShare();
-        console.log('[Hunt Mode Popup] Pending NID:', pendingNid);
+        logger.debug('Hunt Mode pending NID', { pendingNid });
         if (pendingNid) {
           setSharePromptAsset({
             id: 'pending',
@@ -95,7 +98,7 @@ function PopupApp() {
       // Check for insufficient credits error
       await checkCreditStatus(assets);
     } catch (error) {
-      console.error('Failed to load data:', error);
+      logger.error('Failed to load data', error);
     } finally {
       setIsLoading(false);
     }
@@ -113,7 +116,7 @@ function PopupApp() {
       });
 
       if (response.success) {
-        console.log('Screenshot captured:', response.data);
+        logger.info('Screenshot captured', { assetId: response.data?.assetId });
         // Reload assets from IndexedDB
         const assets = await indexedDBService.getAllAssets();
         setAssets(assets);
@@ -128,13 +131,13 @@ function PopupApp() {
         }
       } else if (response.cancelled) {
         // User cancelled selection - do nothing
-        console.log('Screenshot cancelled');
+        logger.debug('Screenshot cancelled');
       } else {
-        console.error('Capture failed:', response.error);
+        logger.error('Capture failed', undefined, { error: response.error });
         alert('Failed to capture screenshot: ' + response.error);
       }
     } catch (error) {
-      console.error('Capture error:', error);
+      logger.error('Capture error', error);
       alert('Failed to capture screenshot');
     } finally {
       setCapturing(false);
@@ -149,13 +152,13 @@ function PopupApp() {
       });
 
       if (response.success) {
-        console.log('Asset queued for upload');
+        logger.info('Asset queued for upload');
         // No need to reload - UPLOAD_PROGRESS listener will handle it
       } else {
         alert('Failed to queue upload: ' + response.error);
       }
     } catch (error) {
-      console.error('Upload error:', error);
+      logger.error('Upload error', error);
       alert('Failed to upload asset');
     }
   }
@@ -637,7 +640,7 @@ function AssetThumbnail({ asset, onUpload, huntMode }: { asset: Asset; onUpload?
         await navigator.clipboard.writeText(verifyUrl);
         // Could add toast notification here
       } catch (err) {
-        console.error('Failed to copy:', err);
+        logger.error('Failed to copy', err);
       }
     }
   };
@@ -877,7 +880,7 @@ function SharePromptModal({
       await navigator.clipboard.writeText(verifyUrl);
       onClose();
     } catch (err) {
-      console.error('Failed to copy:', err);
+      logger.error('Failed to copy', err);
     }
   };
 

@@ -4,7 +4,10 @@
  */
 
 import { storageService } from '../services/StorageService';
+import { createLogger } from '../utils/logger';
 import './share.css';
+
+const logger = createLogger('Share');
 
 async function init() {
   // Get nid from URL params
@@ -72,7 +75,7 @@ async function init() {
       toast.classList.add('show');
       setTimeout(() => toast.classList.remove('show'), 2000);
     } catch (err) {
-      console.error('Failed to copy:', err);
+      logger.error('Failed to copy', err);
     }
   });
 

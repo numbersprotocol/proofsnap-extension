@@ -17,14 +17,18 @@ export const config: EnvironmentConfig = {
 };
 
 /**
- * Debug helper
+ * Debug helper — logs environment configuration at INFO level.
+ * Import the logger lazily to avoid a circular-dependency edge case.
  */
 export function logEnvironmentInfo() {
   if (config.enableLogging) {
-    console.log('🌍 Environment Info:', {
-      apiUrl: config.apiUrl,
-      enableLogging: config.enableLogging,
-      timeout: config.timeout,
+    import('../utils/logger').then(({ createLogger }) => {
+      const logger = createLogger('Environment');
+      logger.info('Environment Info', {
+        apiUrl: config.apiUrl,
+        enableLogging: config.enableLogging,
+        timeout: config.timeout,
+      });
     });
   }
 }

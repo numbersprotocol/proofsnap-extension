@@ -4,6 +4,9 @@
  */
 
 import { ScreenshotOptions, ScreenshotResult, SelectionCoordinates } from '@/types';
+import { createLogger } from '@/utils/logger';
+
+const logger = createLogger('ScreenshotService');
 
 /**
  * Screenshot Service
@@ -80,7 +83,7 @@ export class ScreenshotService {
   async captureFullPage(options: Partial<ScreenshotOptions> = {}): Promise<ScreenshotResult> {
     // For now, just capture visible tab
     // TODO: Implement full page capture with scrolling
-    console.warn('Full page capture not yet implemented, capturing visible area');
+    logger.warn('Full page capture not yet implemented, capturing visible area');
     return await this.captureVisibleTab(options);
   }
 
@@ -261,7 +264,7 @@ export class ScreenshotService {
       navigator.geolocation.getCurrentPosition(
         (position) => resolve(position),
         (error) => {
-          console.warn('Geolocation error:', error);
+          logger.warn('Geolocation error', { error });
           resolve(null);
         },
         {
