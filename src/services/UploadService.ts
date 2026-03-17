@@ -242,13 +242,11 @@ export class UploadService {
       const formData = await this.prepareUploadFormData(asset);
       const result = await this.apiClient.postWithAuth<any>('/assets/', formData);
 
-      clearInterval(progressInterval);
       console.log('Upload successful:', result);
 
       await this.handleUploadSuccess(asset, result);
-    } catch (error) {
+    } finally {
       clearInterval(progressInterval);
-      throw error;
     }
   }
 

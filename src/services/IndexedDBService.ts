@@ -6,8 +6,27 @@
  */
 
 const DB_NAME = 'ProofSnapDB';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = 'assets';
+
+/**
+ * Schema migration functions keyed by version number.
+ * Each function is called in order when upgrading from an older version.
+ */
+const migrations: Record<number, (db: IDBDatabase, tx: IDBTransaction) => void> = {
+  1: (db) => {
+    const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+    store.createIndex('status', 'status', { unique: false });
+    store.createIndex('createdAt', 'createdAt', { unique: false });
+    store.createIndex('type', 'type', { unique: false });
+  },
+  2: (_db, tx) => {
+    const store = tx.objectStore(STORE_NAME);
+    if (!store.indexNames.contains('uploadAttempts')) {
+      store.createIndex('uploadAttempts', 'uploadAttempts', { unique: false });
+    }
+  },
+};
 
 // Asset type for browser extension storage
 export interface Asset {
@@ -60,16 +79,13 @@ export class IndexedDBService {
       };
 
       request.onupgradeneeded = (event) => {
-        const db = (event.target as IDBOpenDBRequest).result;
+        const db = request.result;
+        const tx = request.transaction!;
+        const oldVersion = event.oldVersion;
+        const newVersion = event.newVersion ?? DB_VERSION;
 
-        // Create object store if it doesn't exist
-        if (!db.objectStoreNames.contains(STORE_NAME)) {
-          const objectStore = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
-
-          // Create indexes for efficient queries
-          objectStore.createIndex('status', 'status', { unique: false });
-          objectStore.createIndex('createdAt', 'createdAt', { unique: false });
-          objectStore.createIndex('type', 'type', { unique: false });
+        for (let v = oldVersion + 1; v <= newVersion; v++) {
+          migrations[v]?.(db, tx);
         }
       };
     });
