@@ -119,9 +119,32 @@ export class StorageService {
   // ==========================================
 
   /**
+   * Validate settings before storing them.
+   * Throws an error for values that would cause runtime failures downstream.
+   */
+  private validateSettings(settings: Partial<StoredSettings>): void {
+    if (settings.screenshotQuality !== undefined) {
+      if (
+        typeof settings.screenshotQuality !== 'number' ||
+        settings.screenshotQuality < 0 ||
+        settings.screenshotQuality > 100
+      ) {
+        throw new Error('Invalid screenshot quality: must be a number between 0 and 100');
+      }
+    }
+    if (settings.huntModeMessage !== undefined && settings.huntModeMessage !== null && settings.huntModeMessage.length > 280) {
+      throw new Error('Hunt mode message too long: must be 280 characters or fewer');
+    }
+    if (settings.huntModeHashtags !== undefined && settings.huntModeHashtags !== null && settings.huntModeHashtags.length > 280) {
+      throw new Error('Hunt mode hashtags too long: must be 280 characters or fewer');
+    }
+  }
+
+  /**
    * Store user settings
    */
   async setSettings(settings: StoredSettings): Promise<void> {
+    this.validateSettings(settings);
     await chrome.storage.local.set({ user_settings: JSON.stringify(settings) });
   }
 
@@ -143,6 +166,7 @@ export class StorageService {
    * Update specific settings
    */
   async updateSettings(updates: Partial<StoredSettings>): Promise<void> {
+    this.validateSettings(updates);
     const current = await this.getSettings();
     const updated = { ...current, ...updates };
     await this.setSettings(updated);

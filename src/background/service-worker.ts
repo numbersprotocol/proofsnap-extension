@@ -24,6 +24,9 @@ Promise.all([
   // Initialize NumbersApiManager and register upload completion callback
   try {
     const numbersApi = await getNumbersApi();
+    // onUploadComplete returns an unsubscribe function. In the service-worker
+    // context there is no teardown lifecycle, so cleanup relies on the singleton
+    // being reset via resetNumbersApi() on logout, which drops all callbacks.
     numbersApi.upload.onUploadComplete((assetId: string) => {
       console.log('📥 Upload completion callback triggered for asset:', assetId);
       updateExtensionBadge();
@@ -380,9 +383,29 @@ async function handleSelectionComplete(payload: any) {
 }
 
 /**
+ * Promise lock to prevent concurrent offscreen document creation.
+ * Concurrent calls (e.g. watermark + geolocation simultaneously) could both
+ * pass the context check and then race to call createDocument, which only
+ * allows a single offscreen document and throws on the second call.
+ */
+let offscreenDocumentPromise: Promise<void> | null = null;
+
+/**
  * Ensure offscreen document exists for canvas operations
  */
 async function ensureOffscreenDocument() {
+  if (offscreenDocumentPromise) {
+    return offscreenDocumentPromise;
+  }
+  offscreenDocumentPromise = _ensureOffscreenDocument();
+  try {
+    await offscreenDocumentPromise;
+  } finally {
+    offscreenDocumentPromise = null;
+  }
+}
+
+async function _ensureOffscreenDocument() {
   const existingContexts = await chrome.runtime.getContexts({
     contextTypes: ['OFFSCREEN_DOCUMENT' as any],
   });

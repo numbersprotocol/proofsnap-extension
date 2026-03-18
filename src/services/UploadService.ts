@@ -153,12 +153,15 @@ export class UploadService {
   }
 
   /**
-   * Register completion callback for uploads
+   * Register completion callback for uploads.
+   * Returns an unsubscribe function to prevent memory leaks.
    */
-  onUploadComplete(callback: (assetId: string) => void): void {
-    // Use a unique key for the callback
+  onUploadComplete(callback: (assetId: string) => void): () => void {
     const key = `completion_${Date.now()}_${Math.random()}`;
     this.completionCallbacks.set(key, callback);
+    return () => {
+      this.completionCallbacks.delete(key);
+    };
   }
 
   /**
@@ -279,13 +282,15 @@ export class UploadService {
   }
 
   /**
-   * Start simulating progress updates for an uploading asset
+   * Start simulating progress updates for an uploading asset.
+   * Uses an exponential approach so progress slows near 90% rather than
+   * stalling abruptly, giving more accurate visual feedback.
    */
   private startProgressSimulation(asset: Asset): ReturnType<typeof setInterval> {
     return setInterval(() => {
       const currentProgress = asset.metadata?.uploadProgress || 0;
       if (currentProgress < 0.9) {
-        const newProgress = currentProgress + 0.1;
+        const newProgress = currentProgress + (0.9 - currentProgress) * 0.1;
         asset.metadata = { ...asset.metadata, uploadProgress: newProgress };
         this.emitProgress({
           assetId: asset.id,

@@ -82,11 +82,14 @@ export class NumbersApiManager {
   }
 
   /**
-   * Clear authentication and remove stored token
+   * Clear authentication and remove stored token.
+   * Also resets the singleton so the next call to getNumbersApi()
+   * creates a fresh instance with no stale callbacks or queue state.
    */
   async clearAuth(): Promise<void> {
     await this.auth.clearAuth();
     await storageService.clearAuth();
+    resetNumbersApi();
   }
 
   /**
@@ -156,4 +159,13 @@ export async function getNumbersApi(): Promise<NumbersApiManager> {
     await instance.initialize();
   }
   return instance;
+}
+
+/**
+ * Reset the singleton instance.
+ * Call this during logout to ensure the next session starts with a clean state,
+ * preventing stale callbacks or upload queue entries from leaking across sessions.
+ */
+export function resetNumbersApi(): void {
+  instance = null;
 }
