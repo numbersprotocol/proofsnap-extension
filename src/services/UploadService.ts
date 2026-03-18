@@ -40,15 +40,26 @@ export class UploadService {
   private async restoreQueue() {
     try {
       const queueIds = await this.metadataStorage.getUploadQueueIds();
-      if (queueIds.length > 0) {
-        // Get full asset data from IndexedDB
-        const assets: Asset[] = [];
-        for (const id of queueIds) {
-          const asset = await this.assetStorage.getAsset(id);
-          if (asset) {
-            assets.push(asset);
-          }
+      // Get full asset data from IndexedDB for queued assets
+      const assets: Asset[] = [];
+      for (const id of queueIds) {
+        const asset = await this.assetStorage.getAsset(id);
+        if (asset) {
+          assets.push(asset);
         }
+      }
+
+      // Recover any failed assets from IndexedDB that are not already in the persisted queue.
+      // These may have been lost due to the premature shift() bug in a prior session.
+      const allAssets = await this.assetStorage.getAllAssets();
+      const queueIdSet = new Set(queueIds);
+      for (const asset of allAssets) {
+        if (asset.status === 'failed' && !queueIdSet.has(asset.id)) {
+          assets.push(asset);
+        }
+      }
+
+      if (assets.length > 0) {
         this.uploadQueue = assets;
         console.log(`Restored ${assets.length} assets to upload queue`);
         // Auto-start processing if not paused
@@ -210,7 +221,7 @@ export class UploadService {
     }
 
     this.isUploading = true;
-    const asset = this.uploadQueue.shift();
+    const asset = this.uploadQueue[0]; // Peek without removing
 
     if (!asset) {
       this.isUploading = false;
@@ -219,12 +230,17 @@ export class UploadService {
 
     try {
       await this.uploadAsset(asset);
+      this.uploadQueue.shift(); // Only remove from queue on success
     } catch (error) {
       console.error('Upload failed:', error);
       await this.handleUploadError(asset, error);
+      // Move failed asset to end of queue so its ID is persisted and other assets
+      // can be processed before it is retried
+      this.uploadQueue.push(this.uploadQueue.splice(0, 1)[0]);
+    } finally {
+      await this.saveQueue();
     }
 
-    await this.saveQueue();
     this.isUploading = false;
     this.processQueue(); // Continue with next asset
   }
