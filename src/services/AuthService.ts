@@ -91,16 +91,21 @@ export class AuthService {
     const scopes = 'openid email profile';
     const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
 
-    // Generate cryptographically secure nonce
-    const array = new Uint32Array(4);
+    // Generate cryptographically secure nonce and state
+    const array = new Uint32Array(8);
     crypto.getRandomValues(array);
-    const nonce = Array.from(array, dec => dec.toString(36)).join('');
+    const nonce = Array.from(array.slice(0, 4), dec => dec.toString(36)).join('');
+    const state = Array.from(array.slice(4), dec => dec.toString(36)).join('');
+
+    // Persist state before launching auth flow to guard against login CSRF
+    await chrome.storage.session.set({ oauth_state: state });
 
     authUrl.searchParams.set('client_id', clientId);
     authUrl.searchParams.set('response_type', 'id_token');
     authUrl.searchParams.set('redirect_uri', redirectUri);
     authUrl.searchParams.set('scope', scopes);
     authUrl.searchParams.set('nonce', nonce); // secure nonce
+    authUrl.searchParams.set('state', state); // CSRF protection
     authUrl.searchParams.set('prompt', 'select_account'); // force selection to ensure fresh login if needed
 
     return new Promise((resolve, reject) => {
@@ -109,21 +114,38 @@ export class AuthService {
           url: authUrl.toString(),
           interactive: true,
         },
-        (responseUrl) => {
+        async (responseUrl) => {
           if (chrome.runtime.lastError || !responseUrl) {
+            await chrome.storage.session.remove('oauth_state');
             reject(chrome.runtime.lastError?.message || 'Google Auth failed or canceled');
             return;
           }
 
-          // Parse id_token from the hash fragment of the response URL
+          // Retrieve and clear the stored state
+          const stored = await chrome.storage.session.get('oauth_state');
+          await chrome.storage.session.remove('oauth_state');
+
+          // Parse the response URL (state may be in hash fragment or query string)
           const url = new URL(responseUrl);
-          const params = new URLSearchParams(url.hash.substring(1)); // remove leading #
-          const idToken = params.get('id_token');
+          const hashParams = new URLSearchParams(url.hash.substring(1)); // remove leading #
+          const queryParams = url.searchParams;
+          const returnedState = hashParams.get('state') ?? queryParams.get('state');
+
+          // Verify state to prevent login CSRF
+          const expectedState: string | undefined = stored['oauth_state'];
+          if (!expectedState || !returnedState || returnedState !== expectedState) {
+            reject('OAuth state mismatch — possible CSRF attack');
+            return;
+          }
+
+          const idToken = hashParams.get('id_token');
 
           if (idToken) {
             resolve(idToken);
           } else {
-            console.error('No id_token found in response', responseUrl);
+            // Log only the origin to aid debugging without leaking sensitive parameters
+            const responseOrigin = new URL(responseUrl).origin;
+            console.error('No id_token found in response from', responseOrigin);
             reject('Failed to retrieve ID token from Google');
           }
         }
