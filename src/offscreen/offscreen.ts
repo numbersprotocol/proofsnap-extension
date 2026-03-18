@@ -5,6 +5,20 @@
 
 console.log('ProofSnap offscreen document loaded');
 
+const MAX_CANVAS_DIMENSION = 16384;
+
+/**
+ * Validate image payload: data URL must be a data URI and dimensions must be within limits
+ */
+function validateImagePayload(dataUrl: string, width: number, height: number): void {
+  if (!dataUrl.startsWith('data:image/')) {
+    throw new Error('Invalid image data URL');
+  }
+  if (width > MAX_CANVAS_DIMENSION || height > MAX_CANVAS_DIMENSION) {
+    throw new Error('Image dimensions exceed maximum allowed size');
+  }
+}
+
 // Type definitions for watermark options
 interface WatermarkPayload {
   dataUrl: string;
@@ -91,6 +105,8 @@ async function cropImage(payload: {
   width: number;
   height: number;
 }): Promise<{ dataUrl: string; width: number; height: number }> {
+  validateImagePayload(payload.dataUrl, payload.width, payload.height);
+
   const canvas = document.getElementById('canvas') as HTMLCanvasElement;
   const ctx = canvas.getContext('2d');
 
@@ -124,6 +140,8 @@ async function cropImage(payload: {
  * - Timestamp is optional based on user settings
  */
 async function addWatermark(payload: WatermarkPayload): Promise<{ dataUrl: string }> {
+  validateImagePayload(payload.dataUrl, payload.width, payload.height);
+
   const canvas = document.getElementById('canvas') as HTMLCanvasElement;
   const ctx = canvas.getContext('2d');
 

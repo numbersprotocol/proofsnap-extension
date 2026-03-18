@@ -14,6 +14,9 @@ console.log('ProofSnap background service worker loaded');
 const assetStorage = indexedDBService;
 const metadataStorage = storageService;
 
+// Valid asset ID format: screenshot_<timestamp>_<random hex>
+const ASSET_ID_PATTERN = /^screenshot_\d+_[a-z0-9]+$/;
+
 // Initialize storage services
 Promise.all([
   assetStorage.init(),
@@ -327,12 +330,11 @@ async function handleSelectionComplete(payload: any) {
         let numbersApi = await getNumbersApi();
         let auth = numbersApi.auth.isAuthenticated();
         
-        // If not authenticated in memory, try to reload token from storage
+        // If not authenticated in memory, try to restore and validate token from storage
         if (!auth) {
-          const storedAuth = await metadataStorage.getAuth();
-          if (storedAuth?.token) {
-            numbersApi.setAuthToken(storedAuth.token);
-            auth = true;
+          await numbersApi.initialize();
+          auth = numbersApi.auth.isAuthenticated();
+          if (auth) {
             console.log('✅ Restored auth token from storage');
           }
         }
@@ -546,12 +548,11 @@ async function handleScreenshotCapture(
         let numbersApi = await getNumbersApi();
         let auth = numbersApi.auth.isAuthenticated();
         
-        // If not authenticated in memory, try to reload token from storage
+        // If not authenticated in memory, try to restore and validate token from storage
         if (!auth) {
-          const storedAuth = await metadataStorage.getAuth();
-          if (storedAuth?.token) {
-            numbersApi.setAuthToken(storedAuth.token);
-            auth = true;
+          await numbersApi.initialize();
+          auth = numbersApi.auth.isAuthenticated();
+          if (auth) {
             console.log('✅ Restored auth token from storage');
           }
         }
@@ -642,16 +643,20 @@ async function updateExtensionBadge() {
  */
 async function handleAssetUpload(payload: any) {
   try {
-    const asset = await assetStorage.getAsset(payload.assetId);
+    const assetId = payload?.assetId;
+    if (typeof assetId !== 'string' || !ASSET_ID_PATTERN.test(assetId)) {
+      throw new Error('Invalid assetId format');
+    }
+
+    const asset = await assetStorage.getAsset(assetId);
 
     if (!asset) {
       throw new Error('Asset not found');
     }
 
     const numbersApi = await getNumbersApi();
-    // Pass isManualRetry=true since this is triggered by user clicking retry
-    await numbersApi.upload.addToQueue(asset, true);
-    console.log('Asset queued for manual retry upload:', asset.id);
+    await numbersApi.upload.addToQueue(asset);
+    console.log('Asset queued for upload:', asset.id);
   } catch (error) {
     console.error('Failed to queue asset for upload:', error);
     throw error;

@@ -90,6 +90,14 @@ export class NumbersApiManager {
   }
 
   /**
+   * Delete user account permanently and clear all stored auth data
+   */
+  async deleteAccount(): Promise<void> {
+    await this.auth.deleteAccount();
+    await storageService.clearAuth();
+  }
+
+  /**
    * Set authentication token for all API requests
    * (Internal use - prefer login/signup methods)
    */
