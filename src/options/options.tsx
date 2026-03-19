@@ -6,6 +6,7 @@
 import { useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import { storageService, StoredSettings } from '../services/StorageService';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 import './options.css';
 
 /**
@@ -542,5 +543,9 @@ function OptionsApp() {
 
 const root = document.getElementById('root');
 if (root) {
-  ReactDOM.createRoot(root).render(<OptionsApp />);
+  ReactDOM.createRoot(root).render(
+    <ErrorBoundary>
+      <OptionsApp />
+    </ErrorBoundary>
+  );
 }

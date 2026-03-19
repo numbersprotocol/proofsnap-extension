@@ -20,18 +20,21 @@ export interface UploadProgress {
  * Browser-compatible Upload Service
  */
 export class UploadService {
+  private static readonly MAX_RETRIES = 3;
+
   private uploadQueue: Asset[] = [];
   private isUploading = false;
   private isPaused = false;
   private progressCallbacks: Map<string, (progress: UploadProgress) => void> = new Map();
   private completionCallbacks: Map<string, (assetId: string) => void> = new Map();
+  private readyPromise: Promise<void>;
 
   constructor(
     private apiClient: ApiClient,
     private assetStorage = indexedDBService,
     private metadataStorage = storageService
   ) {
-    this.restoreQueue();
+    this.readyPromise = this.restoreQueue();
   }
 
   /**
@@ -65,6 +68,7 @@ export class UploadService {
    * @param isManualRetry - Whether this is a manual retry by the user (unpauses queue)
    */
   async addToQueue(asset: Asset, isManualRetry = false): Promise<void> {
+    await this.readyPromise;
     // Check if already in queue
     const exists = this.uploadQueue.find(a => a.id === asset.id);
     if (exists) {
@@ -87,6 +91,7 @@ export class UploadService {
    * @param isManualRetry - Whether this is a manual retry by the user (unpauses queue)
    */
   async addMultipleToQueue(assets: Asset[], isManualRetry = false): Promise<void> {
+    await this.readyPromise;
     let addedCount = 0;
     for (const asset of assets) {
       const exists = this.uploadQueue.find(a => a.id === asset.id);
@@ -402,8 +407,13 @@ export class UploadService {
       await this.metadataStorage.clearInsufficientCreditsNotificationDismissed();
     }
 
+    // Increment retry counter and check against limit
+    const retryCount = (asset.retryCount ?? 0) + 1;
+    const isPermanentlyFailed = retryCount > UploadService.MAX_RETRIES;
+
     // Update asset status
-    asset.status = 'failed';
+    asset.status = isPermanentlyFailed ? 'permanently_failed' : 'failed';
+    asset.retryCount = retryCount;
     asset.metadata = {
       ...asset.metadata,
       error: errorMessage,
@@ -411,9 +421,14 @@ export class UploadService {
     };
 
     await this.assetStorage.updateAsset(asset.id, {
-      status: 'failed',
+      status: asset.status,
+      retryCount,
       metadata: asset.metadata,
     });
+
+    if (isPermanentlyFailed) {
+      console.warn(`Asset ${asset.id} permanently failed after ${retryCount} retries`);
+    }
 
     this.emitProgress({
       assetId: asset.id,

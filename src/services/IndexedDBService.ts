@@ -16,7 +16,8 @@ export interface Asset {
   type: 'image' | 'video';
   mimeType: string;
   createdAt: number;
-  status: 'draft' | 'uploading' | 'uploaded' | 'failed';
+  status: 'draft' | 'uploading' | 'uploaded' | 'failed' | 'permanently_failed';
+  retryCount?: number;
   metadata?: {
     uploadedAt?: string;
     width?: number;

@@ -10,6 +10,7 @@ import { storageService } from '../services/StorageService';
 import AuthForm from './AuthForm';
 import InsufficientCreditsNotification from './InsufficientCreditsNotification';
 import { getNumbersApi } from '../services/NumbersApiManager';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 import './popup.css';
 
 /**
@@ -1027,5 +1028,9 @@ function SharePromptModal({
 // Mount React app
 const root = document.getElementById('root');
 if (root) {
-  ReactDOM.createRoot(root).render(<PopupApp />);
+  ReactDOM.createRoot(root).render(
+    <ErrorBoundary>
+      <PopupApp />
+    </ErrorBoundary>
+  );
 }
