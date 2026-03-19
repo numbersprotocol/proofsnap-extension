@@ -166,10 +166,15 @@ export class ApiClient {
         );
       }
 
-      // Handle empty responses
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
+      // Handle empty responses (204 No Content)
+      if (response.status === 204) {
         return {} as T;
+      }
+
+      // Reject unexpected content types to surface server errors (e.g. HTML error pages)
+      const contentType = response.headers.get('content-type');
+      if (!contentType?.includes('application/json')) {
+        throw new ApiError(`Unexpected content type: ${contentType}`, response.status);
       }
 
       return await response.json();

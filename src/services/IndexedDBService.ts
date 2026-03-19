@@ -172,6 +172,20 @@ export class IndexedDBService {
       request.onerror = () => reject(new Error('Failed to delete asset'));
     });
   }
+
+  /**
+   * Clear all assets from the store (used on logout to remove sensitive data)
+   */
+  async clearAllAssets(): Promise<void> {
+    const db = await this.ensureDB();
+
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORE_NAME], 'readwrite');
+      transaction.objectStore(STORE_NAME).clear();
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(new Error('Failed to clear assets'));
+    });
+  }
 }
 
 // Export singleton instance

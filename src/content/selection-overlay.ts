@@ -14,6 +14,7 @@ if (!(window as any).__proofSnapSelectionActive) {
     height: number;
   }
 
+  let shadowHost: HTMLDivElement | null = null;
   let overlay: HTMLDivElement | null = null;
   let selectionBox: HTMLDivElement | null = null;
   let isSelecting = false;
@@ -24,9 +25,13 @@ if (!(window as any).__proofSnapSelectionActive) {
    * Initialize the selection overlay
    */
   function initSelectionOverlay(): void {
+    // Create a Shadow host and attach a closed Shadow DOM for isolation from the host page.
+    // This prevents host-page CSS from styling our UI and host-page JS from reading our elements.
+    shadowHost = document.createElement('div');
+    const shadow = shadowHost.attachShadow({ mode: 'closed' });
+
     // Create dark overlay
     overlay = document.createElement('div');
-    overlay.id = 'proofsnap-selection-overlay';
     overlay.style.cssText = `
       position: fixed;
       top: 0;
@@ -41,7 +46,6 @@ if (!(window as any).__proofSnapSelectionActive) {
 
     // Create selection box
     selectionBox = document.createElement('div');
-    selectionBox.id = 'proofsnap-selection-box';
     selectionBox.style.cssText = `
       position: fixed;
       border: 2px dashed #fff;
@@ -54,7 +58,6 @@ if (!(window as any).__proofSnapSelectionActive) {
 
     // Create instructions tooltip
     const instructions = document.createElement('div');
-    instructions.id = 'proofsnap-instructions';
     instructions.innerHTML = `
       <div style="
         position: fixed;
@@ -80,9 +83,10 @@ if (!(window as any).__proofSnapSelectionActive) {
       </div>
     `;
 
-    document.body.appendChild(overlay);
-    document.body.appendChild(selectionBox);
-    document.body.appendChild(instructions);
+    shadow.appendChild(overlay);
+    shadow.appendChild(selectionBox);
+    shadow.appendChild(instructions);
+    document.body.appendChild(shadowHost);
 
     // Add event listeners
     overlay.addEventListener('mousedown', handleMouseDown);
@@ -203,16 +207,10 @@ if (!(window as any).__proofSnapSelectionActive) {
     document.removeEventListener('mouseup', handleMouseUp);
     document.removeEventListener('keydown', handleKeyDown);
 
-    const elements = [
-      'proofsnap-selection-overlay',
-      'proofsnap-selection-box',
-      'proofsnap-instructions',
-    ];
-
-    elements.forEach((id) => {
-      const el = document.getElementById(id);
-      if (el) el.remove();
-    });
+    if (shadowHost) {
+      shadowHost.remove();
+      shadowHost = null;
+    }
 
     overlay = null;
     selectionBox = null;

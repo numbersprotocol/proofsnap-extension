@@ -9,6 +9,8 @@
  * - Does NOT store large assets (assets handled by IndexedDBService)
  */
 
+import { indexedDBService } from './IndexedDBService';
+
 export interface StoredAuth {
   token: string;
   email: string;
@@ -253,6 +255,7 @@ export class StorageService {
    */
   async clearAll(): Promise<void> {
     await chrome.storage.local.clear();
+    await indexedDBService.clearAllAssets();
   }
 }
 
