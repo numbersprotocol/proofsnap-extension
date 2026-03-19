@@ -1,11 +1,12 @@
 /**
  * Storage Service for Browser Extension
- * Handles small metadata storage using chrome.storage.local
+ * Handles small metadata storage using chrome.storage
  *
  * Pure storage layer - no dependencies on other services
  *
  * Storage Strategy:
- * - chrome.storage.local (~10MB): Auth tokens, settings, upload queue IDs
+ * - chrome.storage.session (in-memory, cleared on browser close): Auth token
+ * - chrome.storage.local (~10MB): Non-sensitive user data, settings, upload queue IDs
  * - Does NOT store large assets (assets handled by IndexedDBService)
  */
 
@@ -56,13 +57,26 @@ const DEFAULT_SETTINGS: StoredSettings = {
 
 /**
  * Storage Service
- * Manages chrome.storage.local for small data
+ * auth_token → chrome.storage.session (in-memory, not persisted to disk)
+ * non-sensitive user data → chrome.storage.local
  */
 export class StorageService {
   /**
    * Initialize storage - persist default settings on first run
    */
   async init(): Promise<void> {
+    // Migrate any auth_token previously stored in local storage to session storage.
+    // This handles users upgrading from a version that stored the token in local.
+    try {
+      const legacyLocal = await chrome.storage.local.get('auth_token');
+      if (legacyLocal.auth_token) {
+        await chrome.storage.session.set({ auth_token: legacyLocal.auth_token });
+        await chrome.storage.local.remove('auth_token');
+      }
+    } catch (error) {
+      console.warn('Failed to migrate auth_token to session storage:', error);
+    }
+
     const result = await chrome.storage.local.get('user_settings');
     if (!result.user_settings) {
       await this.setSettings(DEFAULT_SETTINGS);
@@ -74,11 +88,16 @@ export class StorageService {
   // ==========================================
 
   /**
-   * Store authentication data
+   * Store authentication data.
+   * The auth token is stored in chrome.storage.session (in-memory, cleared on
+   * browser close) to avoid persisting sensitive credentials to disk.
+   * Non-sensitive user data (email, username) stays in chrome.storage.local.
    */
   async setAuth(auth: StoredAuth): Promise<void> {
+    // Token in session storage — not written to disk
+    await chrome.storage.session.set({ auth_token: auth.token });
+    // Non-sensitive identifiers in local storage for UX continuity
     await chrome.storage.local.set({
-      auth_token: auth.token,
       auth_email: auth.email,
       auth_username: auth.username,
     });
@@ -88,12 +107,15 @@ export class StorageService {
    * Get stored authentication data
    */
   async getAuth(): Promise<StoredAuth | null> {
-    const result = await chrome.storage.local.get(['auth_token', 'auth_email', 'auth_username']);
-    if (result.auth_token) {
+    const [sessionResult, localResult] = await Promise.all([
+      chrome.storage.session.get('auth_token'),
+      chrome.storage.local.get(['auth_email', 'auth_username']),
+    ]);
+    if (sessionResult.auth_token) {
       return {
-        token: result.auth_token,
-        email: result.auth_email,
-        username: result.auth_username,
+        token: sessionResult.auth_token,
+        email: localResult.auth_email,
+        username: localResult.auth_username,
       };
     }
     return null;
@@ -103,14 +125,15 @@ export class StorageService {
    * Clear authentication data
    */
   async clearAuth(): Promise<void> {
-    await chrome.storage.local.remove(['auth_token', 'auth_email', 'auth_username']);
+    await chrome.storage.session.remove('auth_token');
+    await chrome.storage.local.remove(['auth_email', 'auth_username']);
   }
 
   /**
    * Check if user is authenticated
    */
   async isAuthenticated(): Promise<boolean> {
-    const result = await chrome.storage.local.get('auth_token');
+    const result = await chrome.storage.session.get('auth_token');
     return !!result.auth_token;
   }
 

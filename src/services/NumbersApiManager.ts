@@ -147,13 +147,16 @@ export class NumbersApiManager {
   }
 }
 
-// Lazy singleton pattern
-let instance: NumbersApiManager | null = null;
+// Lazy singleton pattern — promise-based lock prevents race conditions
+let initPromise: Promise<NumbersApiManager> | null = null;
 
-export async function getNumbersApi(): Promise<NumbersApiManager> {
-  if (!instance) {
-    instance = new NumbersApiManager();
-    await instance.initialize();
+export function getNumbersApi(): Promise<NumbersApiManager> {
+  if (!initPromise) {
+    initPromise = (async () => {
+      const mgr = new NumbersApiManager();
+      await mgr.initialize();
+      return mgr;
+    })();
   }
-  return instance;
+  return initPromise;
 }
