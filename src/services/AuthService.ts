@@ -14,18 +14,12 @@ type SignupRequest = {
   activation_method?: 'skip' | 'legacy' | 'code';
 };
 type SignupResponse = { auth_token: string };
-type ResetPasswordRequest = { email: string };
 type CustomUser = {
   id: number;
   username: string;
   email: string;
   address?: string;
   [key: string]: any;
-};
-type UserUpdateRequest = {
-  language?: string;
-  default_tag?: string;
-  allow_c2pa_download?: boolean;
 };
 
 /**
@@ -149,13 +143,6 @@ export class AuthService {
   }
 
   /**
-   * Request password reset
-   */
-  async resetPassword(resetData: ResetPasswordRequest): Promise<void> {
-    await this.apiClient.postPublic('/auth/users/reset_password/', resetData);
-  }
-
-  /**
    * Get current user profile
    */
   async getCurrentUser(): Promise<CustomUser> {
@@ -163,18 +150,11 @@ export class AuthService {
   }
 
   /**
-   * Update user data (config and profile)
-   */
-  async updateUser(userData: UserUpdateRequest): Promise<CustomUser> {
-    return await this.apiClient.patchWithAuth<CustomUser>('/auth/users/me/', userData);
-  }
-
-  /**
    * Delete user account permanently
    */
   async deleteAccount(): Promise<void> {
     await this.apiClient.deleteWithAuth('/auth/users/me/');
-    this.clearAuth();
+    await this.clearAuth();
   }
 
   /**

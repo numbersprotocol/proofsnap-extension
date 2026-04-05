@@ -3,7 +3,7 @@
  * Full-featured settings and authentication page
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import { storageService, StoredSettings } from '../services/StorageService';
 import './options.css';
@@ -337,6 +337,32 @@ function HuntModeSettings({
   settings: StoredSettings;
   onSave: (updates: Partial<StoredSettings>) => void;
 }) {
+  const [message, setMessage] = useState(settings.huntModeMessage);
+  const [hashtags, setHashtags] = useState(settings.huntModeHashtags);
+  const messageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hashtagsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Sync local state when parent settings change (e.g. on initial load)
+  useEffect(() => {
+    setMessage(settings.huntModeMessage);
+  }, [settings.huntModeMessage]);
+
+  useEffect(() => {
+    setHashtags(settings.huntModeHashtags);
+  }, [settings.huntModeHashtags]);
+
+  const handleMessageChange = (value: string) => {
+    setMessage(value);
+    if (messageTimerRef.current) clearTimeout(messageTimerRef.current);
+    messageTimerRef.current = setTimeout(() => onSave({ huntModeMessage: value }), 400);
+  };
+
+  const handleHashtagsChange = (value: string) => {
+    setHashtags(value);
+    if (hashtagsTimerRef.current) clearTimeout(hashtagsTimerRef.current);
+    hashtagsTimerRef.current = setTimeout(() => onSave({ huntModeHashtags: value }), 400);
+  };
+
   return (
     <section className="settings-section hunt-mode-section">
       <h2>
@@ -378,8 +404,8 @@ function HuntModeSettings({
             <input
               id="huntModeMessage"
               type="text"
-              value={settings.huntModeMessage}
-              onChange={(e) => onSave({ huntModeMessage: e.target.value })}
+              value={message}
+              onChange={(e) => handleMessageChange(e.target.value)}
               className="text-input"
               placeholder="🎯 I spotted this!"
             />
@@ -393,8 +419,8 @@ function HuntModeSettings({
             <input
               id="huntModeHashtags"
               type="text"
-              value={settings.huntModeHashtags}
-              onChange={(e) => onSave({ huntModeHashtags: e.target.value })}
+              value={hashtags}
+              onChange={(e) => handleHashtagsChange(e.target.value)}
               className="text-input"
               placeholder="#ProofSnapHunt #AIHunt"
             />

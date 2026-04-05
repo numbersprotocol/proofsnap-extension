@@ -23,6 +23,12 @@ const AuthForm: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
         setLoading(true);
         setError('');
 
+        if (!isLoginMode && password.length < 8) {
+            setError('Password must be at least 8 characters.');
+            setLoading(false);
+            return;
+        }
+
         try {
             const numbersApi = await getNumbersApi();
 
@@ -107,8 +113,12 @@ const AuthForm: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
                     value={password}
                     onChange={e => setPassword(e.target.value)}
                     required
+                    minLength={isLoginMode ? undefined : 8}
                     className="auth-input"
                 />
+                {!isLoginMode && password.length > 0 && password.length < 8 && (
+                    <p className="auth-field-hint">Password must be at least 8 characters.</p>
+                )}
 
                 <button type="submit" disabled={loading} className="auth-submit-button">
                     {loading ? (isLoginMode ? 'Logging in...' : 'Signing up...') : (isLoginMode ? 'Login' : 'Sign Up')}

@@ -39,17 +39,8 @@ export interface StorageKeys {
   auth_token?: string;
   user_data?: string; // JSON string
   assets?: string; // JSON string of Asset[]
-  settings?: string; // JSON string of UserSettings
+  settings?: string; // JSON string of StoredSettings (see StorageService)
   upload_queue?: string; // JSON string of Asset[]
-}
-
-export interface UserSettings {
-  autoUpload: boolean;
-  includeLocation: boolean;
-  includeTimestamp: boolean;
-  defaultCaptureMode: CaptureMode;
-  screenshotFormat: 'png' | 'jpeg';
-  screenshotQuality: number;
 }
 
 // Message passing types for extension communication
