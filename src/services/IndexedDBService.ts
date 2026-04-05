@@ -117,25 +117,33 @@ export class IndexedDBService {
    */
   async pruneAssets(): Promise<void> {
     const assets = await this.getAllAssets();
-
     const now = Date.now();
 
-    // Delete failed assets that exceed the TTL
-    const expiredFailed = assets.filter(
-      a => a.status === 'failed' && now - a.createdAt > FAILED_ASSET_TTL_MS
-    );
-    for (const asset of expiredFailed) {
-      await this.deleteAsset(asset.id);
+    // Identify assets to delete: expired failed assets OR excess beyond limit
+    // Assets are sorted newest-first; keep only the first MAX_STORED_ASSETS
+    const deleteIds = new Set<string>();
+
+    // Mark expired failed assets for deletion
+    for (const asset of assets) {
+      if (asset.status === 'failed' && now - asset.createdAt > FAILED_ASSET_TTL_MS) {
+        deleteIds.add(asset.id);
+      }
     }
 
-    // Re-fetch after deletion to check count
-    const remaining = await this.getAllAssets();
-    if (remaining.length > MAX_STORED_ASSETS) {
-      // Remove oldest assets (sorted newest-first, so remove from the end)
-      const toRemove = remaining.slice(MAX_STORED_ASSETS);
-      for (const asset of toRemove) {
-        await this.deleteAsset(asset.id);
+    // Enforce total count limit on the remaining (non-deleted) assets
+    let kept = 0;
+    for (const asset of assets) {
+      if (!deleteIds.has(asset.id)) {
+        if (kept >= MAX_STORED_ASSETS) {
+          deleteIds.add(asset.id);
+        } else {
+          kept++;
+        }
       }
+    }
+
+    for (const id of deleteIds) {
+      await this.deleteAsset(id);
     }
   }
 

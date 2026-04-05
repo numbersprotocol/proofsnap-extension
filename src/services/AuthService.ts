@@ -40,6 +40,15 @@ export class AuthService {
   }
 
   /**
+   * Validate that an API response contains a non-empty auth_token string
+   */
+  private static assertAuthToken(response: any, context: string): asserts response is { auth_token: string } {
+    if (!response || typeof response.auth_token !== 'string' || !response.auth_token) {
+      throw new Error(`Invalid ${context} response: missing auth_token`);
+    }
+  }
+
+  /**
    * Login with email and password
    */
   async login(credentials: LoginRequest): Promise<LoginResponse> {
@@ -49,9 +58,7 @@ export class AuthService {
     );
 
     // Runtime validation: ensure auth_token is a non-empty string
-    if (!response || typeof response.auth_token !== 'string' || !response.auth_token) {
-      throw new Error('Invalid login response: missing auth_token');
-    }
+    AuthService.assertAuthToken(response, 'login');
 
     // Store the auth token in the API client
     this.apiClient.setAuthToken(response.auth_token);
@@ -145,9 +152,7 @@ export class AuthService {
     );
 
     // Runtime validation: ensure auth_token is a non-empty string
-    if (!response || typeof response.auth_token !== 'string' || !response.auth_token) {
-      throw new Error('Invalid Google login response: missing auth_token');
-    }
+    AuthService.assertAuthToken(response, 'Google login');
 
     this.apiClient.setAuthToken(response.auth_token);
 
