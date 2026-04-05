@@ -48,10 +48,13 @@ export class AuthService {
       credentials
     );
 
-    // Store the auth token in the API client
-    if (response.auth_token) {
-      this.apiClient.setAuthToken(response.auth_token);
+    // Runtime validation: ensure auth_token is a non-empty string
+    if (!response || typeof response.auth_token !== 'string' || !response.auth_token) {
+      throw new Error('Invalid login response: missing auth_token');
     }
+
+    // Store the auth token in the API client
+    this.apiClient.setAuthToken(response.auth_token);
 
     return response;
   }
@@ -66,7 +69,7 @@ export class AuthService {
     );
 
     // Store the auth token in the API client if provided
-    if (response.auth_token) {
+    if (response && typeof response.auth_token === 'string' && response.auth_token) {
       this.apiClient.setAuthToken(response.auth_token);
     }
 
@@ -123,7 +126,7 @@ export class AuthService {
           if (idToken) {
             resolve(idToken);
           } else {
-            console.error('No id_token found in response', responseUrl);
+            console.error('No id_token found in Google Auth response URL');
             reject('Failed to retrieve ID token from Google');
           }
         }
@@ -141,9 +144,12 @@ export class AuthService {
       { id_token: idToken }
     );
 
-    if (response.auth_token) {
-      this.apiClient.setAuthToken(response.auth_token);
+    // Runtime validation: ensure auth_token is a non-empty string
+    if (!response || typeof response.auth_token !== 'string' || !response.auth_token) {
+      throw new Error('Invalid Google login response: missing auth_token');
     }
+
+    this.apiClient.setAuthToken(response.auth_token);
 
     return response;
   }
@@ -159,7 +165,14 @@ export class AuthService {
    * Get current user profile
    */
   async getCurrentUser(): Promise<CustomUser> {
-    return await this.apiClient.getWithAuth<CustomUser>('/auth/users/me/');
+    const user = await this.apiClient.getWithAuth<CustomUser>('/auth/users/me/');
+
+    // Runtime validation: ensure required fields are present
+    if (!user || typeof user.id !== 'number' || typeof user.username !== 'string' || typeof user.email !== 'string') {
+      throw new Error('Invalid user profile response: missing required fields');
+    }
+
+    return user;
   }
 
   /**

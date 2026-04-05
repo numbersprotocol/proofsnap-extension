@@ -24,7 +24,7 @@ export class UploadService {
   private isUploading = false;
   private isPaused = false;
   private progressCallbacks: Map<string, (progress: UploadProgress) => void> = new Map();
-  private completionCallbacks: Map<string, (assetId: string) => void> = new Map();
+  private completionCallback: ((assetId: string) => void) | null = null;
 
   constructor(
     private apiClient: ApiClient,
@@ -156,9 +156,7 @@ export class UploadService {
    * Register completion callback for uploads
    */
   onUploadComplete(callback: (assetId: string) => void): void {
-    // Use a unique key for the callback
-    const key = `completion_${Date.now()}_${Math.random()}`;
-    this.completionCallbacks.set(key, callback);
+    this.completionCallback = callback;
   }
 
   /**
@@ -183,14 +181,14 @@ export class UploadService {
    * Emit completion notification
    */
   private emitCompletion(assetId: string): void {
-    // Notify completion callbacks (e.g., service worker for badge updates)
-    this.completionCallbacks.forEach((callback) => {
+    // Notify completion callback (e.g., service worker for badge updates)
+    if (this.completionCallback) {
       try {
-        callback(assetId);
+        this.completionCallback(assetId);
       } catch (error) {
         console.error('Error in completion callback:', error);
       }
-    });
+    }
 
     // Also send message to popup/options pages for UI updates
     chrome.runtime.sendMessage({
@@ -303,7 +301,9 @@ export class UploadService {
     const blob = await this.dataUrlToBlob(asset.uri);
 
     const formData = new FormData();
-    const filename = `screenshot_${Date.now()}.${asset.mimeType.split('/')[1]}`;
+    const rawExt = asset.mimeType.split('/')[1];
+    const safeExt = ['png', 'jpeg', 'jpg', 'webp'].includes(rawExt) ? rawExt : 'png';
+    const filename = `screenshot_${Date.now()}.${safeExt}`;
     formData.append('asset_file', blob, filename);
 
     const signedMetadata = this.createSignedMetadata(asset);
@@ -326,6 +326,10 @@ export class UploadService {
    * Handle successful upload: update asset, clean up, and notify
    */
   private async handleUploadSuccess(asset: Asset, result: any): Promise<void> {
+    // Runtime validation: result must be an object
+    if (!result || typeof result !== 'object') {
+      throw new Error('Invalid upload response: expected an object');
+    }
     // The API returns 'id' which is the same as the nid/cid
     const nid = result.id || result.cid || result.nid;
     console.log('[UploadService] handleUploadSuccess called with nid:', nid);

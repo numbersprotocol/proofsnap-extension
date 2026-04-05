@@ -9,6 +9,10 @@ const DB_NAME = 'ProofSnapDB';
 const DB_VERSION = 1;
 const STORE_NAME = 'assets';
 
+// Storage limits to prevent local DoS via storage exhaustion
+const MAX_STORED_ASSETS = 50;
+const FAILED_ASSET_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
 // Asset type for browser extension storage
 export interface Asset {
   id: string;
@@ -103,6 +107,36 @@ export class IndexedDBService {
       request.onsuccess = () => resolve();
       request.onerror = () => reject(new Error('Failed to store asset'));
     });
+
+    // Enforce storage limits after adding the asset
+    await this.pruneAssets();
+  }
+
+  /**
+   * Remove failed assets older than FAILED_ASSET_TTL_MS and enforce MAX_STORED_ASSETS limit
+   */
+  async pruneAssets(): Promise<void> {
+    const assets = await this.getAllAssets();
+
+    const now = Date.now();
+
+    // Delete failed assets that exceed the TTL
+    const expiredFailed = assets.filter(
+      a => a.status === 'failed' && now - a.createdAt > FAILED_ASSET_TTL_MS
+    );
+    for (const asset of expiredFailed) {
+      await this.deleteAsset(asset.id);
+    }
+
+    // Re-fetch after deletion to check count
+    const remaining = await this.getAllAssets();
+    if (remaining.length > MAX_STORED_ASSETS) {
+      // Remove oldest assets (sorted newest-first, so remove from the end)
+      const toRemove = remaining.slice(MAX_STORED_ASSETS);
+      for (const asset of toRemove) {
+        await this.deleteAsset(asset.id);
+      }
+    }
   }
 
   /**

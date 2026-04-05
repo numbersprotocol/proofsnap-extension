@@ -20,13 +20,19 @@ if (!(window as any).__proofSnapSelectionActive) {
   let startX = 0;
   let startY = 0;
 
+  // Generate a cryptographically random suffix to prevent DOM ID clobbering
+  const idSuffix = crypto.getRandomValues(new Uint32Array(1))[0].toString(36);
+  const OVERLAY_ID = `proofsnap-selection-overlay-${idSuffix}`;
+  const SELECTION_BOX_ID = `proofsnap-selection-box-${idSuffix}`;
+  const INSTRUCTIONS_ID = `proofsnap-instructions-${idSuffix}`;
+
   /**
    * Initialize the selection overlay
    */
   function initSelectionOverlay(): void {
     // Create dark overlay
     overlay = document.createElement('div');
-    overlay.id = 'proofsnap-selection-overlay';
+    overlay.id = OVERLAY_ID;
     overlay.style.cssText = `
       position: fixed;
       top: 0;
@@ -41,7 +47,7 @@ if (!(window as any).__proofSnapSelectionActive) {
 
     // Create selection box
     selectionBox = document.createElement('div');
-    selectionBox.id = 'proofsnap-selection-box';
+    selectionBox.id = SELECTION_BOX_ID;
     selectionBox.style.cssText = `
       position: fixed;
       border: 2px dashed #fff;
@@ -54,7 +60,7 @@ if (!(window as any).__proofSnapSelectionActive) {
 
     // Create instructions tooltip
     const instructions = document.createElement('div');
-    instructions.id = 'proofsnap-instructions';
+    instructions.id = INSTRUCTIONS_ID;
     instructions.innerHTML = `
       <div style="
         position: fixed;
@@ -204,9 +210,9 @@ if (!(window as any).__proofSnapSelectionActive) {
     document.removeEventListener('keydown', handleKeyDown);
 
     const elements = [
-      'proofsnap-selection-overlay',
-      'proofsnap-selection-box',
-      'proofsnap-instructions',
+      OVERLAY_ID,
+      SELECTION_BOX_ID,
+      INSTRUCTIONS_ID,
     ];
 
     elements.forEach((id) => {
