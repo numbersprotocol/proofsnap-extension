@@ -195,11 +195,14 @@ function PopupApp() {
   }
 
   function openDashboard() {
-    if (username && /^[a-zA-Z0-9_.-]+$/.test(username)) {
-      chrome.tabs.create({
-        url: `https://dashboard.captureapp.xyz/showcase/${encodeURIComponent(username)}`,
-      });
+    if (!username) return;
+    if (!/^[a-zA-Z0-9_.-]+$/.test(username)) {
+      console.warn('openDashboard: username contains invalid characters, navigation blocked.');
+      return;
     }
+    chrome.tabs.create({
+      url: `https://dashboard.captureapp.xyz/showcase/${encodeURIComponent(username)}`,
+    });
   }
 
   async function checkCreditStatus(currentAssets: Asset[]) {
