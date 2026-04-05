@@ -113,7 +113,7 @@ const AuthForm: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
                     value={password}
                     onChange={e => setPassword(e.target.value)}
                     required
-                    minLength={isLoginMode ? undefined : 8}
+                    minLength={isLoginMode ? 1 : 8}
                     className="auth-input"
                 />
                 {!isLoginMode && password.length > 0 && password.length < 8 && (

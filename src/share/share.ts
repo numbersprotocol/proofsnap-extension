@@ -75,7 +75,7 @@ async function init() {
 
   // Event listeners
   document.getElementById('shareX')!.addEventListener('click', () => {
-    window.open(twitterUrl, '_blank');
+    window.open(twitterUrl, '_blank', 'noopener,noreferrer');
   });
 
   document.getElementById('copyLink')!.addEventListener('click', async () => {
