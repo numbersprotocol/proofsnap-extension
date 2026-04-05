@@ -131,7 +131,7 @@ function PopupApp() {
         console.log('Screenshot cancelled');
       } else {
         console.error('Capture failed:', response.error);
-        alert('Failed to capture screenshot: ' + response.error);
+        alert('Failed to capture screenshot. Please try again.');
       }
     } catch (error) {
       console.error('Capture error:', error);
@@ -152,7 +152,8 @@ function PopupApp() {
         console.log('Asset queued for upload');
         // No need to reload - UPLOAD_PROGRESS listener will handle it
       } else {
-        alert('Failed to queue upload: ' + response.error);
+        console.error('Upload failed:', response.error);
+        alert('Failed to queue upload. Please try again.');
       }
     } catch (error) {
       console.error('Upload error:', error);
@@ -194,9 +195,9 @@ function PopupApp() {
   }
 
   function openDashboard() {
-    if (username) {
+    if (username && /^[a-zA-Z0-9_.-]+$/.test(username)) {
       chrome.tabs.create({
-        url: `https://dashboard.captureapp.xyz/showcase/${username}`,
+        url: `https://dashboard.captureapp.xyz/showcase/${encodeURIComponent(username)}`,
       });
     }
   }
