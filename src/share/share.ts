@@ -7,14 +7,22 @@ import { storageService } from '../services/StorageService';
 import './share.css';
 
 async function init() {
-  // Get nid from URL params
+  // Get nid from URL params - validate it only contains safe URL characters
   const params = new URLSearchParams(window.location.search);
-  const nid = params.get('nid');
-  
-  if (!nid) {
-    document.getElementById('root')!.innerHTML = '<p>No asset to share</p>';
+  const rawNid = params.get('nid');
+
+  if (!rawNid) {
+    document.getElementById('root')!.textContent = 'No asset to share';
     return;
   }
+
+  // Validate nid to prevent XSS: only allow alphanumeric, hyphens and underscores
+  if (!/^[a-zA-Z0-9_-]+$/.test(rawNid)) {
+    document.getElementById('root')!.textContent = 'Invalid asset identifier';
+    return;
+  }
+
+  const nid = rawNid;
 
   // Get Hunt Mode settings
   const settings = await storageService.getSettings();
@@ -22,7 +30,7 @@ async function init() {
   const shareText = `${settings.huntModeMessage} ${verifyUrl} ${settings.huntModeHashtags}`;
   const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`;
 
-  // Render UI
+  // Render static UI structure (no user-controlled content in innerHTML)
   document.getElementById('root')!.innerHTML = `
     <div class="share-container">
       <div class="share-icon">🎯</div>
@@ -31,9 +39,9 @@ async function init() {
         Your screenshot is now on the blockchain!<br>
         Share it on X to join the AI Hunt event.
       </p>
-      
+
       <div class="verify-link">
-        <a href="${verifyUrl}" target="_blank">${verifyUrl}</a>
+        <a id="verifyLink" target="_blank" rel="noopener noreferrer"></a>
       </div>
 
       <div class="share-buttons">
@@ -43,7 +51,7 @@ async function init() {
           </svg>
           Share on X
         </button>
-        
+
         <button class="share-btn share-btn-copy" id="copyLink">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
@@ -51,7 +59,7 @@ async function init() {
           </svg>
           Copy Verification Link
         </button>
-        
+
         <button class="share-btn share-btn-close" id="closeBtn">
           Maybe Later
         </button>
@@ -59,6 +67,11 @@ async function init() {
     </div>
     <div class="copied-toast" id="toast">Link copied!</div>
   `;
+
+  // Set dynamic content safely using DOM properties (not innerHTML)
+  const verifyLink = document.getElementById('verifyLink') as HTMLAnchorElement;
+  verifyLink.href = verifyUrl;
+  verifyLink.textContent = verifyUrl;
 
   // Event listeners
   document.getElementById('shareX')!.addEventListener('click', () => {
