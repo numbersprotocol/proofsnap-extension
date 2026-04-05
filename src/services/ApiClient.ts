@@ -68,11 +68,15 @@ export class ApiClient {
   /**
    * Build headers for API requests with authentication token
    */
-  private buildAuthHeaders(customHeaders?: Record<string, string>): Record<string, string> {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      ...customHeaders,
-    };
+  private buildAuthHeaders(customHeaders?: Record<string, string>, options?: { skipContentType?: boolean }): Record<string, string> {
+    const headers: Record<string, string> = {};
+
+    if (!options?.skipContentType) {
+      headers['Content-Type'] = 'application/json';
+    }
+
+    // Merge any caller-supplied headers
+    Object.assign(headers, customHeaders);
 
     // Add authentication header
     if (this.authToken) {
@@ -197,7 +201,7 @@ export class ApiClient {
   async requestWithAuth<T>(endpoint: string, config: RequestConfig = {}): Promise<T> {
     const modifiedConfig = {
       ...config,
-      headers: this.buildAuthHeaders(config.headers)
+      headers: this.buildAuthHeaders(config.headers, { skipContentType: config.body instanceof FormData })
     };
     return this.request<T>(endpoint, modifiedConfig);
   }

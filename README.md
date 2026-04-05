@@ -31,7 +31,6 @@ ARCHITECTURE:
 
 KEY FILES:
 - manifest.json: Extension configuration and permissions
-- src/services/ScreenshotService.ts: Screenshot capture logic
 - src/services/UploadService.ts: Asset upload with retry logic
 - src/offscreen/offscreen.ts: Canvas operations for watermarking
 - src/services/StorageService.ts: Chrome storage abstraction
