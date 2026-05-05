@@ -56,6 +56,8 @@ export class IndexedDBService {
 
       request.onsuccess = () => {
         this.db = request.result;
+        this.db.onclose = () => { this.db = null; };
+        this.db.onversionchange = () => { this.db?.close(); this.db = null; };
         resolve();
       };
 

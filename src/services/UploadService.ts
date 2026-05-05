@@ -26,7 +26,11 @@ export class UploadService {
   private isPaused = false;
   private progressCallbacks: Map<string, (progress: UploadProgress) => void> = new Map();
   private completionCallbacks: Map<string, (assetId: string) => void> = new Map();
+  private retryCounts: Map<string, number> = new Map();
   private restoreQueuePromise: Promise<void>;
+
+  private readonly MAX_RETRIES = 3;
+  private readonly RETRY_DELAYS = [2000, 4000, 8000]; // 2s, 4s, 8s
 
   constructor(
     private apiClient: ApiClient,
@@ -344,6 +348,9 @@ export class UploadService {
    * Handle successful upload: update asset, clean up, and notify
    */
   private async handleUploadSuccess(asset: Asset, result: any): Promise<void> {
+    // Clear any retry state for this asset
+    this.retryCounts.delete(asset.id);
+
     // The API returns 'id' which is the same as the nid/cid
     const nid = result.id || result.cid || result.nid;
     logger.log('[UploadService] handleUploadSuccess called with nid:', nid);
@@ -407,20 +414,48 @@ export class UploadService {
    */
   private async handleUploadError(asset: Asset, error: any): Promise<void> {
     const errorMessage = error?.message || 'Upload failed';
-    
-    // Check for insufficient balance
-    let errorType;
+
+    // Insufficient balance is not retryable — pause and mark failed immediately
     if (this.isInsufficientBalanceError(error)) {
       logger.warn('Insufficient balance detected, pausing uploads');
       this.setPaused(true);
-      errorType = 'insufficient_credits';
 
       // Reset notification dismissal to show alert for this insufficient credits error
       // User may have dismissed it previously, but needs to be notified of the new failure
       await this.metadataStorage.clearInsufficientCreditsNotificationDismissed();
+
+      await this.markAssetFailed(asset, errorMessage, 'insufficient_credits');
+      return;
     }
 
-    // Update asset status
+    // Transient errors (network blips, 5xx, timeouts) — retry with backoff
+    if (this.isTransientError(error)) {
+      const retryCount = this.retryCounts.get(asset.id) || 0;
+      if (retryCount < this.MAX_RETRIES) {
+        this.retryCounts.set(asset.id, retryCount + 1);
+        const delay = this.RETRY_DELAYS[retryCount];
+        logger.warn(
+          `Transient upload error for ${asset.id}, retrying in ${delay}ms ` +
+          `(attempt ${retryCount + 1}/${this.MAX_RETRIES}):`,
+          errorMessage
+        );
+        await this.sleep(delay);
+        // Re-add to front of queue so it is next to be processed
+        this.uploadQueue.unshift(asset);
+        return;
+      }
+      // All retries exhausted
+      this.retryCounts.delete(asset.id);
+      logger.error(`Upload failed after ${this.MAX_RETRIES} retries for asset ${asset.id}`);
+    }
+
+    await this.markAssetFailed(asset, errorMessage);
+  }
+
+  /**
+   * Persist failed status to storage and notify listeners
+   */
+  private async markAssetFailed(asset: Asset, errorMessage: string, errorType?: string): Promise<void> {
     asset.status = 'failed';
     asset.metadata = {
       ...asset.metadata,
@@ -439,6 +474,29 @@ export class UploadService {
       status: 'failed',
       error: errorMessage,
     });
+  }
+
+  /**
+   * Return true for errors that are likely transient and safe to retry
+   */
+  private isTransientError(error: any): boolean {
+    // Network/fetch errors (TypeError thrown by the Fetch API)
+    if (error instanceof TypeError) return true;
+    // HTTP 5xx server errors
+    const statusCode = typeof error?.statusCode === 'number' ? error.statusCode : error?.status;
+    if (typeof statusCode === 'number' && statusCode >= 500 && statusCode < 600) return true;
+    const message: string = (error?.message || '').toLowerCase();
+    // Timeout or connection-reset errors
+    if (message.includes('timeout') || message.includes('timed out')) return true;
+    if (message.includes('connection')) return true;
+    return false;
+  }
+
+  /**
+   * Resolve after a given number of milliseconds
+   */
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   /**
