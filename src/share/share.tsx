@@ -4,6 +4,7 @@
  */
 
 import { storageService } from '../services/StorageService';
+import { logger, validateNid } from '../utils/logger';
 import './share.css';
 
 async function init() {
@@ -22,7 +23,7 @@ async function init() {
   }
 
   // Validate nid to only allow safe characters (alphanumeric, hyphens, underscores)
-  if (!/^[a-zA-Z0-9_-]+$/.test(nid)) {
+  if (!validateNid(nid)) {
     const p = document.createElement('p');
     p.textContent = 'Invalid asset ID';
     root.appendChild(p);
@@ -101,7 +102,7 @@ async function init() {
           setTimeout(() => toast.classList.remove('show'), 2000);
         }
       } catch (err) {
-        console.error('Failed to copy:', err);
+        logger.error('Failed to copy:', err);
       }
     });
   }

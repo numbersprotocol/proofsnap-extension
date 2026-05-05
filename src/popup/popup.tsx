@@ -10,6 +10,7 @@ import { storageService } from '../services/StorageService';
 import AuthForm from './AuthForm';
 import InsufficientCreditsNotification from './InsufficientCreditsNotification';
 import { getNumbersApi } from '../services/NumbersApiManager';
+import { logger, validateNid } from '../utils/logger';
 import './popup.css';
 
 /**
@@ -67,7 +68,7 @@ function PopupApp() {
       // Load Hunt Mode settings
       const settings = await storageService.getSettings();
       const huntModeActive = settings.huntModeEnabled;
-      console.log('[Hunt Mode Popup] Settings:', { huntModeEnabled: settings.huntModeEnabled, huntModeActive });
+      logger.log('[Hunt Mode Popup] Settings:', { huntModeEnabled: settings.huntModeEnabled, huntModeActive });
       setHuntMode({
         enabled: huntModeActive,
         message: settings.huntModeMessage,
@@ -77,7 +78,7 @@ function PopupApp() {
       // Check for pending share prompt (from upload that completed while popup was closed)
       if (huntModeActive) {
         const pendingNid = await storageService.getAndClearPendingShare();
-        console.log('[Hunt Mode Popup] Pending NID:', pendingNid);
+        logger.log('[Hunt Mode Popup] Pending NID:', pendingNid);
         if (pendingNid) {
           setSharePromptAsset({
             id: 'pending',
@@ -92,7 +93,7 @@ function PopupApp() {
       // Check for insufficient credits error
       await checkCreditStatus(assets);
     } catch (error) {
-      console.error('Failed to load data:', error);
+      logger.error('Failed to load data:', error);
     } finally {
       setIsLoading(false);
     }
@@ -110,11 +111,11 @@ function PopupApp() {
       });
 
       if (response.success) {
-        console.log('Screenshot captured:', response.data);
+        logger.log('Screenshot captured:', response.data);
         // Reload assets from IndexedDB
         const updatedAssets = await indexedDBService.getAllAssets();
         setAssets(updatedAssets);
-        
+
         // Find the newly created asset and open edit modal for headline/caption
         const assetId = response.data?.assetId;
         if (assetId) {
@@ -126,13 +127,13 @@ function PopupApp() {
         }
       } else if (response.cancelled) {
         // User cancelled selection - do nothing
-        console.log('Screenshot cancelled');
+        logger.log('Screenshot cancelled');
       } else {
-        console.error('Capture failed:', response.error);
+        logger.error('Capture failed:', response.error);
         alert('Failed to capture screenshot: ' + response.error);
       }
     } catch (error) {
-      console.error('Capture error:', error);
+      logger.error('Capture error:', error);
       alert('Failed to capture screenshot');
     } finally {
       setCapturing(false);
@@ -147,13 +148,13 @@ function PopupApp() {
       });
 
       if (response.success) {
-        console.log('Asset queued for upload');
+        logger.log('Asset queued for upload');
         // No need to reload - UPLOAD_PROGRESS listener will handle it
       } else {
         alert('Failed to queue upload: ' + response.error);
       }
     } catch (error) {
-      console.error('Upload error:', error);
+      logger.error('Upload error:', error);
       alert('Failed to upload asset');
     }
   }
@@ -165,7 +166,7 @@ function PopupApp() {
       if (!currentAsset) {
         throw new Error('Asset not found');
       }
-      
+
       // Merge new metadata with existing
       await indexedDBService.updateAsset(assetId, {
         metadata: {
@@ -179,7 +180,7 @@ function PopupApp() {
       setAssets(updatedAssets);
       setEditingAsset(null);
     } catch (error) {
-      console.error('Failed to update asset metadata:', error);
+      logger.error('Failed to update asset metadata:', error);
       alert('Failed to save metadata');
     }
   }
@@ -194,7 +195,7 @@ function PopupApp() {
       setAssets(updatedAssets);
       setEditingAsset(null);
     } catch (error) {
-      console.error('Failed to delete asset:', error);
+      logger.error('Failed to delete asset:', error);
       alert('Failed to delete screenshot');
     }
   }
@@ -254,7 +255,7 @@ function PopupApp() {
     const handleMessage = async (message: any) => {
       if (message.type === 'UPLOAD_PROGRESS') {
         const payload = message.payload;
-        
+
         // Reload assets to show updated progress
         const updatedAssets = await indexedDBService.getAllAssets();
         setAssets(updatedAssets);
@@ -427,9 +428,9 @@ function CaptureSection({
   return (
     <div className="capture-section">
       {/* Capture Mode Toggle */}
-      <div className="capture-mode-toggle" style={{ 
-        display: 'flex', 
-        gap: '4px', 
+      <div className="capture-mode-toggle" style={{
+        display: 'flex',
+        gap: '4px',
         marginBottom: '12px',
         background: 'rgba(0, 0, 0, 0.1)',
         borderRadius: '8px',
@@ -633,18 +634,20 @@ function AssetThumbnail({ asset, onUpload, onEdit, huntMode }: { asset: Asset; o
 
   const handleViewOnBlockchain = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (asset.metadata?.nid) {
+    const nid = asset.metadata?.nid;
+    if (validateNid(nid)) {
       // Open Numbers Protocol asset page in new tab
       chrome.tabs.create({
-        url: `https://asset.captureapp.xyz/${asset.metadata.nid}`,
+        url: `https://asset.captureapp.xyz/${nid}`,
       });
     }
   };
 
   const handleShareToX = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (asset.metadata?.nid && huntMode) {
-      const verifyUrl = `https://asset.captureapp.xyz/${asset.metadata.nid}`;
+    const nid = asset.metadata?.nid;
+    if (validateNid(nid) && huntMode) {
+      const verifyUrl = `https://asset.captureapp.xyz/${nid}`;
       const text = `${huntMode.message} ${verifyUrl} ${huntMode.hashtags}`;
       const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`;
       chrome.tabs.create({ url: twitterUrl });
@@ -653,13 +656,14 @@ function AssetThumbnail({ asset, onUpload, onEdit, huntMode }: { asset: Asset; o
 
   const handleCopyLink = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (asset.metadata?.nid) {
-      const verifyUrl = `https://asset.captureapp.xyz/${asset.metadata.nid}`;
+    const nid = asset.metadata?.nid;
+    if (validateNid(nid)) {
+      const verifyUrl = `https://asset.captureapp.xyz/${nid}`;
       try {
         await navigator.clipboard.writeText(verifyUrl);
         // Could add toast notification here
       } catch (err) {
-        console.error('Failed to copy:', err);
+        logger.error('Failed to copy:', err);
       }
     }
   };
@@ -820,7 +824,7 @@ function AssetEditModal({
       onUpload(asset.id);
       onClose();
     } catch (error) {
-      console.error('Failed to save and upload:', error);
+      logger.error('Failed to save and upload:', error);
       setIsSaving(false);
     }
   };
@@ -831,7 +835,7 @@ function AssetEditModal({
       await onSave(asset.id, headline, caption);
       onClose();
     } catch (error) {
-      console.error('Failed to save draft:', error);
+      logger.error('Failed to save draft:', error);
     } finally {
       setIsSaving(false);
     }
@@ -958,7 +962,7 @@ function SharePromptModal({
       await navigator.clipboard.writeText(verifyUrl);
       onClose();
     } catch (err) {
-      console.error('Failed to copy:', err);
+      logger.error('Failed to copy:', err);
     }
   };
 

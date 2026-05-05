@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { getNumbersApi } from '../services/NumbersApiManager';
 import { storageService } from '../services/StorageService';
+import { logger } from '../utils/logger';
 
 /** Minimum consecutive failed auth attempts before a cooldown is enforced. */
 const RATE_LIMIT_THRESHOLD = 3;
@@ -114,7 +115,7 @@ const AuthForm: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
             setCooldownUntil(null);
             onLogin();
         } catch (err: any) {
-            console.error('Auth error:', err);
+            logger.error('Auth error:', err);
 
             // Increment failure counter and apply exponential backoff when the
             // threshold is exceeded: 5 s, 10 s, 20 s, 40 s …
@@ -159,7 +160,7 @@ const AuthForm: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
             // so the user will simply re-open the popup and be logged in.
             onLogin();
         } catch (err: any) {
-            console.error('Google Auth error:', err);
+            logger.error('Google Auth error:', err);
             // If popup was closed during auth, this error won't be seen by user,
             // but it's good for debugging if inspecting.
             setError(err.message || 'Google Authentication failed.');

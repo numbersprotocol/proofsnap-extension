@@ -6,9 +6,10 @@
 import { storageService } from '../services/StorageService';
 import { indexedDBService } from '../services/IndexedDBService';
 import { getNumbersApi } from '../services/NumbersApiManager';
-import { ExtensionMessage, CaptureScreenshotMessage } from '../types';
+import { ExtensionMessage, CaptureScreenshotMessage, SelectionCoordinates } from '../types';
+import { logger } from '../utils/logger';
 
-console.log('ProofSnap background service worker loaded');
+logger.log('ProofSnap background service worker loaded');
 
 // Use singleton service instances
 const assetStorage = indexedDBService;
@@ -19,28 +20,28 @@ Promise.all([
   assetStorage.init(),
   metadataStorage.init()
 ]).then(async () => {
-  console.log('Storage services initialized (IndexedDB + chrome.storage ready)');
+  logger.log('Storage services initialized (IndexedDB + chrome.storage ready)');
 
   // Initialize NumbersApiManager and register upload completion callback
   try {
     const numbersApi = await getNumbersApi();
     numbersApi.upload.onUploadComplete((assetId: string) => {
-      console.log('📥 Upload completion callback triggered for asset:', assetId);
+      logger.log('📥 Upload completion callback triggered for asset:', assetId);
       updateExtensionBadge();
     });
-    console.log('Upload completion callback registered');
+    logger.log('Upload completion callback registered');
   } catch (error) {
-    console.error('Failed to initialize NumbersApiManager:', error);
+    logger.error('Failed to initialize NumbersApiManager:', error);
   }
 }).catch(error => {
-  console.error('Failed to initialize services:', error);
+  logger.error('Failed to initialize services:', error);
 });
 
 /**
  * Handle extension installation
  */
 chrome.runtime.onInstalled.addListener((details) => {
-  console.log('Extension installed:', details.reason);
+  logger.log('Extension installed:', details.reason);
 
   if (details.reason === 'install') {
     // Set default settings on first install
@@ -73,7 +74,7 @@ chrome.runtime.onInstalled.addListener((details) => {
  * Handle keyboard shortcut commands
  */
 chrome.commands.onCommand.addListener(async (command) => {
-  console.log('Command received:', command);
+  logger.log('Command received:', command);
 
   if (command === 'capture-screenshot') {
     await handleScreenshotCapture('visible');
@@ -84,7 +85,7 @@ chrome.commands.onCommand.addListener(async (command) => {
  * Handle extension icon click
  */
 chrome.action.onClicked.addListener(async (tab) => {
-  console.log('Extension icon clicked', tab);
+  logger.log('Extension icon clicked', tab);
   // The popup will open automatically, no need to handle here
 });
 
@@ -98,7 +99,7 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendRes
     return false;
   }
 
-  console.log('Message received:', message.type, message.payload);
+  logger.log('Message received:', message.type);
 
   switch (message.type) {
     case 'CAPTURE_SCREENSHOT':
@@ -130,23 +131,23 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendRes
         sendResponse({ success: false, error: 'Unauthorized sender' });
         return false;
       }
-      console.log('Starting Google Auth in background...');
+      logger.log('Starting Google Auth in background...');
       (async () => {
         try {
           const numbersApi = await getNumbersApi();
 
           // 1. Get ID Token via Chrome Identity (interactive flow)
-          console.log('Background: Requesting Google ID Token...');
+          logger.log('Background: Requesting Google ID Token...');
           const token = await numbersApi.auth.authenticateWithGoogle();
-          console.log('Background: Got ID Token. Logging in to backend...');
+          logger.log('Background: Got ID Token. Logging in to backend...');
 
           // 2. Exchange ID Token for numbers protocol auth token
           await numbersApi.loginGoogle(token);
-          console.log('Background: Google Login successful.');
+          logger.log('Background: Google Login successful.');
 
           sendResponse({ success: true });
         } catch (error: any) {
-          console.error('Background: Google Auth failed:', error);
+          logger.error('Background: Google Auth failed:', error);
           const errorMessage = error.message || 'Google Auth failed';
           await storageService.setGoogleAuthError(errorMessage);
           sendResponse({ success: false, error: errorMessage });
@@ -156,12 +157,20 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendRes
 
     case 'SELECTION_COMPLETE':
       // Handle selection complete from content script
-      handleSelectionComplete(message.payload);
-      sendResponse({ success: true });
-      return false;
+      handleSelectionComplete(message.payload)
+        .then(() => sendResponse({ success: true }))
+        .catch((error) => {
+          logger.error('Selection completion failed:', error);
+          rejectPendingSelection(error);
+          sendResponse({
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      return true;
 
     default:
-      console.warn('Unknown message type:', message.type);
+      logger.warn('Unknown message type:', message.type);
       sendResponse({ success: false, error: 'Unknown message type' });
   }
 });
@@ -179,6 +188,15 @@ let pendingSelectionResolve: ((value: any) => void) | null = null;
 let pendingSelectionReject: ((reason: any) => void) | null = null;
 let pendingSelectionFromPopup = false;
 
+function rejectPendingSelection(error: unknown): void {
+  if (pendingSelectionReject) {
+    pendingSelectionReject(error);
+    pendingSelectionResolve = null;
+    pendingSelectionReject = null;
+    pendingSelectionFromPopup = false;
+  }
+}
+
 /**
  * Handle selection mode capture
  * Injects content script and waits for user selection
@@ -195,7 +213,7 @@ async function handleSelectionCapture(tab: chrome.tabs.Tab): Promise<any> {
       files: ['content/selection-overlay.js'],
     });
   } catch (error) {
-    console.error('Failed to inject selection script:', error);
+    logger.error('Failed to inject selection script:', error);
     throw new Error('Failed to start selection mode. Make sure you are on a valid web page.');
   }
 
@@ -216,21 +234,56 @@ async function handleSelectionCapture(tab: chrome.tabs.Tab): Promise<any> {
 }
 
 /**
+ * Validate SelectionCoordinates payload
+ */
+function validateCoordinates(coords: unknown): coords is SelectionCoordinates {
+  if (!coords || typeof coords !== 'object') return false;
+  const c = coords as Record<string, unknown>;
+  return (
+    typeof c.x === 'number' &&
+    typeof c.y === 'number' &&
+    typeof c.width === 'number' &&
+    typeof c.height === 'number' &&
+    c.width > 0 &&
+    c.height > 0 &&
+    c.width <= 32767 &&
+    c.height <= 32767
+  );
+}
+
+/**
+ * Validate asset upload payload
+ */
+function validateAssetUploadPayload(payload: unknown): payload is { assetId: string } {
+  if (!payload || typeof payload !== 'object') return false;
+  const p = payload as Record<string, unknown>;
+  return typeof p.assetId === 'string' && p.assetId.length > 0;
+}
+
+/**
  * Handle selection complete message from content script
  */
-async function handleSelectionComplete(payload: any) {
-  if (payload.cancelled) {
-    console.log('Selection cancelled:', payload.reason);
+async function handleSelectionComplete(payload: unknown) {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Invalid selection payload');
+  }
+  const p = payload as Record<string, unknown>;
+  if (p.cancelled) {
+    const reason = typeof p.reason === 'string' ? p.reason : undefined;
+    logger.log('Selection cancelled:', reason);
     if (pendingSelectionResolve) {
-      pendingSelectionResolve({ cancelled: true, reason: payload.reason });
+      pendingSelectionResolve({ cancelled: true, reason });
       pendingSelectionResolve = null;
       pendingSelectionReject = null;
     }
     return;
   }
 
-  const { coordinates } = payload;
-  console.log('Selection complete:', coordinates);
+  const { coordinates } = p;
+  if (!validateCoordinates(coordinates)) {
+    throw new Error('Invalid or out-of-range selection coordinates');
+  }
+  logger.log('Selection complete:', coordinates);
 
   try {
     // Get the active tab to capture
@@ -272,9 +325,9 @@ async function handleSelectionComplete(payload: any) {
 
     if (response.success) {
       dataUrl = response.data.dataUrl;
-      console.log('✅ Selection cropped and watermark added');
+      logger.log('✅ Selection cropped and watermark added');
     } else {
-      console.warn('Failed to process selection:', response.error);
+      logger.warn('Failed to process selection:', response.error);
     }
 
     // Get location if enabled via offscreen document
@@ -287,12 +340,12 @@ async function handleSelectionComplete(payload: any) {
         });
         if (locationResponse.success && locationResponse.data) {
           gpsLocation = locationResponse.data;
-          console.log('✅ Geolocation captured:', gpsLocation!.latitude, gpsLocation!.longitude);
+          logger.log('✅ Geolocation captured');
         } else {
-          console.warn('⚠️ Could not get geolocation:', locationResponse.error || 'Permission denied or unavailable');
+          logger.warn('⚠️ Could not get geolocation:', locationResponse.error || 'Permission denied or unavailable');
         }
       } catch (error) {
-        console.warn('⚠️ Geolocation error:', error);
+        logger.warn('⚠️ Geolocation error:', error);
         // Continue without location
       }
     }
@@ -306,7 +359,7 @@ async function handleSelectionComplete(payload: any) {
           title: tab.title,
         };
       } catch (error) {
-        console.warn('Failed to parse URL:', error);
+        logger.warn('Failed to parse URL:', error);
       }
     }
 
@@ -349,16 +402,16 @@ async function handleSelectionComplete(payload: any) {
           if (storedAuth?.token) {
             numbersApi.setAuthToken(storedAuth.token);
             auth = true;
-            console.log('✅ Restored auth token from storage');
+            logger.log('✅ Restored auth token from storage');
           }
         }
         
         if (auth) {
           await numbersApi.upload.addToQueue(asset);
-          console.log('✅ Asset added to upload queue');
+          logger.log('✅ Asset added to upload queue');
         }
       } catch (uploadError) {
-        console.error('Failed to add asset to upload queue:', uploadError);
+        logger.error('Failed to add asset to upload queue:', uploadError);
       }
     }
 
@@ -385,13 +438,9 @@ async function handleSelectionComplete(payload: any) {
       pendingSelectionFromPopup = false;
     }
   } catch (error: any) {
-    console.error('Failed to capture selection:', error);
-    if (pendingSelectionReject) {
-      pendingSelectionReject(error);
-      pendingSelectionResolve = null;
-      pendingSelectionReject = null;
-      pendingSelectionFromPopup = false;
-    }
+    logger.error('Failed to capture selection:', error);
+    rejectPendingSelection(error);
+    throw error;
   }
 }
 
@@ -473,12 +522,12 @@ async function handleScreenshotCapture(
 
       if (response.success) {
         dataUrl = response.data.dataUrl;
-        console.log('✅ Watermark added successfully');
+        logger.log('✅ Watermark added successfully');
       } else {
-        console.warn('Failed to add watermark:', response.error);
+        logger.warn('Failed to add watermark:', response.error);
       }
     } catch (error) {
-      console.error('Watermark error:', error);
+      logger.error('Watermark error:', error);
       // Continue without watermark if it fails
     }
 
@@ -492,12 +541,12 @@ async function handleScreenshotCapture(
         });
         if (locationResponse.success && locationResponse.data) {
           gpsLocation = locationResponse.data;
-          console.log('✅ Geolocation captured:', gpsLocation!.latitude, gpsLocation!.longitude);
+          logger.log('✅ Geolocation captured');
         } else {
-          console.warn('⚠️ Could not get geolocation:', locationResponse.error || 'Permission denied or unavailable');
+          logger.warn('⚠️ Could not get geolocation:', locationResponse.error || 'Permission denied or unavailable');
         }
       } catch (error) {
-        console.warn('⚠️ Geolocation error:', error);
+        logger.warn('⚠️ Geolocation error:', error);
         // Continue without location
       }
     }
@@ -511,9 +560,9 @@ async function handleScreenshotCapture(
           url: tab.url,
           title: tab.title,
         };
-        console.log('✅ Website metadata captured:', url.hostname);
+        logger.log('✅ Website metadata captured:', url.hostname);
       } catch (error) {
-        console.warn('Failed to parse URL:', error);
+        logger.warn('Failed to parse URL:', error);
       }
     }
 
@@ -539,7 +588,7 @@ async function handleScreenshotCapture(
     await assetStorage.setAsset(asset);
 
     // Note: mode and options parameters preserved for future implementation
-    console.log('Capture mode:', mode, 'Options:', options);
+    logger.log('Capture mode:', mode, 'Options:', options);
 
     // Notify popup of new screenshot
     chrome.runtime.sendMessage({
@@ -568,18 +617,18 @@ async function handleScreenshotCapture(
           if (storedAuth?.token) {
             numbersApi.setAuthToken(storedAuth.token);
             auth = true;
-            console.log('✅ Restored auth token from storage');
+            logger.log('✅ Restored auth token from storage');
           }
         }
         
         if (auth) {
           await numbersApi.upload.addToQueue(asset);
-          console.log('✅ Asset added to upload queue');
+          logger.log('✅ Asset added to upload queue');
         } else {
-          console.log('⚠️ Auto-upload enabled but user not authenticated');
+          logger.log('⚠️ Auto-upload enabled but user not authenticated');
         }
       } catch (uploadError) {
-        console.error('Failed to add asset to upload queue:', uploadError);
+        logger.error('Failed to add asset to upload queue:', uploadError);
         // Don't fail the capture if upload queueing fails
       }
     }
@@ -591,7 +640,7 @@ async function handleScreenshotCapture(
       autoUpload: settings.autoUpload && !fromPopup,
     };
   } catch (error) {
-    console.error('Screenshot capture failed:', error);
+    logger.error('Screenshot capture failed:', error);
     throw error;
   }
 }
@@ -600,10 +649,10 @@ async function handleScreenshotCapture(
  * Show browser notification for successful capture
  */
 async function showCaptureNotification(autoUpload: boolean) {
-  console.log('🔔 Attempting to show notification, autoUpload:', autoUpload);
+  logger.log('🔔 Attempting to show notification, autoUpload:', autoUpload);
 
   try {
-    console.log('✅ Creating Chrome notification...');
+    logger.log('✅ Creating Chrome notification...');
     const notificationOptions = {
       type: 'basic' as const,
       iconUrl: chrome.runtime.getURL('icons/icon48.png'),
@@ -617,20 +666,20 @@ async function showCaptureNotification(autoUpload: boolean) {
     const notificationId = `proofsnap-${Date.now()}`;
     chrome.notifications.create(notificationId, notificationOptions, (createdId) => {
       if (chrome.runtime.lastError) {
-        console.error('❌ Notification creation error:', chrome.runtime.lastError);
+        logger.error('❌ Notification creation error:', chrome.runtime.lastError);
       } else {
-        console.log('✅ Notification created:', createdId);
+        logger.log('✅ Notification created:', createdId);
         // Auto-clear after 3 seconds
         setTimeout(() => {
           chrome.notifications.clear(notificationId);
-          console.log('🔔 Notification cleared');
+          logger.log('🔔 Notification cleared');
         }, 3000);
       }
     });
 
-    console.log('✅ Notification shown');
+    logger.log('✅ Notification shown');
   } catch (error) {
-    console.error('❌ Failed to show notification:', error);
+    logger.error('❌ Failed to show notification:', error);
   }
 }
 
@@ -649,14 +698,17 @@ async function updateExtensionBadge() {
       chrome.action.setBadgeText({ text: '' }); // Clear badge
     }
   } catch (error) {
-    console.warn('Failed to update badge:', error);
+    logger.warn('Failed to update badge:', error);
   }
 }
 
 /**
  * Handle asset upload
  */
-async function handleAssetUpload(payload: any) {
+async function handleAssetUpload(payload: unknown) {
+  if (!validateAssetUploadPayload(payload)) {
+    throw new Error('Invalid asset upload payload');
+  }
   try {
     const asset = await assetStorage.getAsset(payload.assetId);
 
@@ -667,9 +719,9 @@ async function handleAssetUpload(payload: any) {
     const numbersApi = await getNumbersApi();
     // Pass isManualRetry=true since this is triggered by user clicking retry
     await numbersApi.upload.addToQueue(asset, true);
-    console.log('Asset queued for manual retry upload:', asset.id);
+    logger.log('Asset queued for manual retry upload:', asset.id);
   } catch (error) {
-    console.error('Failed to queue asset for upload:', error);
+    logger.error('Failed to queue asset for upload:', error);
     throw error;
   }
 }
@@ -678,7 +730,7 @@ async function handleAssetUpload(payload: any) {
  * Keep service worker alive
  */
 self.addEventListener('activate', (_event) => {
-  console.log('Service worker activated');
+  logger.log('Service worker activated');
 });
 
 // Export for testing (if needed)

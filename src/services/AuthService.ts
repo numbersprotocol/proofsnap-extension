@@ -3,6 +3,7 @@
  * Handles user login, signup, and token management
  */
 import { ApiClient } from './ApiClient';
+import { logger } from '../utils/logger';
 
 type LoginRequest = { email: string; password: string };
 type LoginResponse = { auth_token: string };
@@ -121,7 +122,7 @@ export class AuthService {
           const idToken = params.get('id_token');
 
           if (!idToken) {
-            console.error('No id_token found in response', responseUrl);
+            logger.error('No id_token found in Google auth response');
             reject('Failed to retrieve ID token from Google');
             return;
           }
