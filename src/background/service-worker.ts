@@ -317,7 +317,7 @@ async function handleSelectionComplete(payload: any) {
     await assetStorage.setAsset(asset);
 
     // Show notification
-    await showCaptureNotification(settings.autoUpload);
+    await showCaptureNotification(settings.autoUpload && !pendingSelectionFromPopup);
     await updateExtensionBadge();
 
     // Auto-upload if enabled and not initiated from popup
@@ -362,7 +362,7 @@ async function handleSelectionComplete(payload: any) {
         assetId,
         dataUrl,
         timestamp: captureTime.toISOString(),
-        autoUpload: settings.autoUpload,
+        autoUpload: settings.autoUpload && !pendingSelectionFromPopup,
       });
       pendingSelectionResolve = null;
       pendingSelectionReject = null;
@@ -405,6 +405,7 @@ async function handleScreenshotCapture(
   mode: 'visible' | 'selection' | 'fullpage',
   options: any = {}
 ) {
+  const fromPopup = options?.fromPopup === true;
   try {
     // Get current active tab first
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -414,7 +415,7 @@ async function handleScreenshotCapture(
 
     // Handle selection mode - inject content script and wait for selection
     if (mode === 'selection') {
-      pendingSelectionFromPopup = options?.fromPopup === true;
+      pendingSelectionFromPopup = fromPopup;
       return await handleSelectionCapture(tab);
     }
 
@@ -535,12 +536,11 @@ async function handleScreenshotCapture(
     });
 
     // Show user feedback for quick capture
-    await showCaptureNotification(settings.autoUpload);
+    await showCaptureNotification(settings.autoUpload && !fromPopup);
     await updateExtensionBadge();
 
     // Auto-upload if enabled and not initiated from popup
     // (popup handles upload after showing headline/caption modal)
-    const fromPopup = options?.fromPopup === true;
     if (settings.autoUpload && !fromPopup) {
       try {
         let numbersApi = await getNumbersApi();
@@ -572,7 +572,7 @@ async function handleScreenshotCapture(
       assetId,
       dataUrl,
       timestamp: captureTime.toISOString(),
-      autoUpload: settings.autoUpload,
+      autoUpload: settings.autoUpload && !fromPopup,
     };
   } catch (error) {
     console.error('Screenshot capture failed:', error);
