@@ -3,7 +3,9 @@
  * Used for adding watermarks to screenshots and cropping
  */
 
-console.log('ProofSnap offscreen document loaded');
+import { logger } from '../utils/logger';
+
+logger.log('ProofSnap offscreen document loaded');
 
 // Type definitions for watermark options
 interface WatermarkPayload {
@@ -74,7 +76,7 @@ async function getGeolocation(): Promise<{ latitude: number; longitude: number; 
         });
       },
       (error) => {
-        console.warn('Geolocation error:', error.message);
+        logger.warn('Geolocation error:', error.message);
         // Don't reject - just return null so capture continues
         resolve(null);
       },
@@ -327,7 +329,7 @@ async function drawLogo(
     ctx.drawImage(logo, logoX, logoY, logoWidth, logoHeight);
     ctx.globalAlpha = 1.0;
   } catch (error) {
-    console.warn('Failed to load logo:', error);
+    logger.warn('Failed to load logo:', error);
   }
 }
 
