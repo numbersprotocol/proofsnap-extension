@@ -535,6 +535,41 @@
   font-size: 14px;
 }
 
+/* Password strength indicator */
+.password-strength {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.password-strength-bar {
+  flex: 1;
+  height: 4px;
+  background: #e5e7eb;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.password-strength-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.3s ease, background-color 0.3s ease;
+}
+
+.password-strength-label {
+  font-size: 11px;
+  font-weight: 600;
+  min-width: 40px;
+  text-align: right;
+}
+
+.password-hint {
+  font-size: 11px;
+  color: #6b7280;
+  margin: 0;
+}
+
 /* Metadata Modal (Headline/Caption) */
 .metadata-modal {
   border-top: 4px solid #3B82F6;
