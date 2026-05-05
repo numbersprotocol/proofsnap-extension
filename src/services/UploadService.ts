@@ -248,6 +248,12 @@ export class UploadService {
       await this.handleUploadSuccess(asset, result);
     } catch (error) {
       clearInterval(progressInterval);
+      const duplicateResult = this.getDuplicateUploadResult(error);
+      if (duplicateResult) {
+        console.log('Upload already exists, treating duplicate as success:', duplicateResult);
+        await this.handleUploadSuccess(asset, duplicateResult);
+        return;
+      }
       throw error;
     }
   }
@@ -421,6 +427,33 @@ export class UploadService {
       status: 'failed',
       error: errorMessage,
     });
+  }
+
+  /**
+   * Convert duplicate upload errors into a successful upload result.
+   * The backend returns the existing asset cid in error.details when the same
+   * file content has already been registered.
+   */
+  private getDuplicateUploadResult(error: any): any | null {
+    if (error?.data?.error?.type !== 'duplicate_asset_not_allowed') {
+      return null;
+    }
+
+    const details = error.data.error.details;
+    const duplicate = Array.isArray(details) ? details[0] : details;
+    const cid = duplicate?.cid;
+
+    if (!cid) {
+      return null;
+    }
+
+    return {
+      id: cid,
+      cid,
+      nid: cid,
+      duplicate: true,
+      duplicateAssetId: duplicate?.id,
+    };
   }
 
   /**
