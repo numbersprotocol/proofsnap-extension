@@ -38,10 +38,20 @@ export class ApiClient {
   private baseUrl: string;
   private timeout: number;
   private authToken?: string;
+  private onUnauthenticated?: () => void;
 
   constructor(config: ApiClientConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, ''); // Remove trailing slash
     this.timeout = config.timeout || 30000;
+  }
+
+  /**
+   * Register a callback invoked whenever a 401 Unauthorized response is
+   * received on an authenticated request.  Use this to clear local auth
+   * state and prompt re-login without requiring callers to handle it.
+   */
+  setOnUnauthenticated(callback: () => void): void {
+    this.onUnauthenticated = callback;
   }
 
   /**
@@ -199,7 +209,14 @@ export class ApiClient {
       ...config,
       headers: this.buildAuthHeaders(config.headers)
     };
-    return this.request<T>(endpoint, modifiedConfig);
+    try {
+      return await this.request<T>(endpoint, modifiedConfig);
+    } catch (error) {
+      if (error instanceof ApiError && error.statusCode === 401) {
+        this.onUnauthenticated?.();
+      }
+      throw error;
+    }
   }
 
 
