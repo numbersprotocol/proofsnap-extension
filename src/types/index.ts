@@ -59,6 +59,6 @@ export interface CaptureScreenshotMessage {
   payload: {
     mode: CaptureMode;
     options?: Partial<ScreenshotOptions>;
-    fromPopup?: boolean;
+    fromPopup?: boolean; // When true, skip auto-upload to allow adding metadata first
   };
 }
