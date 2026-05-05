@@ -26,7 +26,13 @@ interface WatermarkPayload {
 }
 
 // Listen for messages from service worker
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // Reject messages from other extensions or web pages
+  if (sender.id !== chrome.runtime.id) {
+    sendResponse({ success: false, error: 'Unauthorized sender' });
+    return false;
+  }
+
   if (message.type === 'ADD_WATERMARK') {
     addWatermark(message.payload)
       .then((result) => sendResponse({ success: true, data: result }))

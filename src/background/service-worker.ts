@@ -91,7 +91,13 @@ chrome.action.onClicked.addListener(async (tab) => {
 /**
  * Handle messages from popup
  */
-chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendResponse) => {
+  // Reject messages from other extensions or web pages
+  if (sender.id !== chrome.runtime.id) {
+    sendResponse({ success: false, error: 'Unauthorized sender' });
+    return false;
+  }
+
   console.log('Message received:', message.type, message.payload);
 
   switch (message.type) {
@@ -108,12 +114,22 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendRe
       return true; // Keep channel open for async response
 
     case 'UPLOAD_ASSET':
+      // Only allow from extension pages, not content scripts
+      if (sender.tab) {
+        sendResponse({ success: false, error: 'Unauthorized sender' });
+        return false;
+      }
       handleAssetUpload(message.payload)
         .then(() => sendResponse({ success: true }))
         .catch((error) => sendResponse({ success: false, error: error.message }));
       return true;
 
     case 'START_GOOGLE_AUTH':
+      // Only allow from extension pages, not content scripts
+      if (sender.tab) {
+        sendResponse({ success: false, error: 'Unauthorized sender' });
+        return false;
+      }
       console.log('Starting Google Auth in background...');
       (async () => {
         try {
