@@ -256,16 +256,6 @@ export class ApiClient {
   }
 
   /**
-   * PUT request with token authentication only
-   */
-  async putWithAuth<T>(endpoint: string, body?: any): Promise<T> {
-    return this.requestWithAuth<T>(endpoint, {
-      method: 'PUT',
-      body
-    });
-  }
-
-  /**
    * PATCH request with token authentication only
    */
   async patchWithAuth<T>(endpoint: string, body?: any): Promise<T> {
@@ -288,16 +278,6 @@ export class ApiClient {
   // ==========================================
   // Public API convenience methods
   // ==========================================
-
-  /**
-   * GET request for public endpoints
-   */
-  async getPublic<T>(endpoint: string, params?: Record<string, any>): Promise<T> {
-    return this.requestPublic<T>(endpoint, {
-      method: 'GET',
-      params
-    });
-  }
 
   /**
    * POST request for public endpoints

@@ -242,6 +242,15 @@ function PopupApp() {
     if (confirm('Are you sure you want to logout?')) {
       const numbersApi = await getNumbersApi();
       await numbersApi.clearAuth();
+
+      // Clear all stored assets from IndexedDB to prevent data leakage
+      try {
+        const allAssets = await indexedDBService.getAllAssets();
+        await Promise.all(allAssets.map((asset) => indexedDBService.deleteAsset(asset.id)));
+      } catch (error) {
+        logger.error('Failed to clear IndexedDB assets on logout:', error);
+      }
+
       setIsAuthenticated(false);
       setUsername('');
       setEmail('');

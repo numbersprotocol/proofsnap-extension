@@ -416,7 +416,7 @@ async function handleSelectionComplete(payload: unknown) {
     // (popup handles upload after showing headline/caption modal)
     if (settings.autoUpload && !pendingSelectionFromPopup) {
       try {
-        let numbersApi = await getNumbersApi();
+        const numbersApi = await getNumbersApi();
         let auth = numbersApi.auth.isAuthenticated();
         
         // If not authenticated in memory, try to reload token from storage
@@ -525,8 +525,8 @@ async function handleScreenshotCapture(
 
     // Get image dimensions from data URL
     const img = await createImageBitmap(await (await fetch(dataUrl)).blob());
-    let width = img.width;
-    let height = img.height;
+    const width = img.width;
+    const height = img.height;
 
     // Add watermark (logo always included, timestamp optional)
     try {
@@ -635,7 +635,7 @@ async function handleScreenshotCapture(
     // (popup handles upload after showing headline/caption modal)
     if (settings.autoUpload && !fromPopup) {
       try {
-        let numbersApi = await getNumbersApi();
+        const numbersApi = await getNumbersApi();
         let auth = numbersApi.auth.isAuthenticated();
         
         // If not authenticated in memory, try to reload token from storage

@@ -8,6 +8,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "type-check": "tsc --noEmit",
+    "lint": "eslint src",
+    "format": "prettier --write src",
     "generate-manifest": "node scripts/generate-manifest.js"
   },
   "dependencies": {
@@ -15,11 +17,18 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.4",
     "@types/chrome": "^0.0.270",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.10",
     "@vitejs/plugin-react": "^4.3.4",
+    "eslint": "^9.39.4",
+    "eslint-config-prettier": "^9.1.2",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.26",
+    "prettier": "^3.8.1",
     "typescript": "^5.8.3",
+    "typescript-eslint": "^8.57.0",
     "vite": "^6.0.11",
     "vite-plugin-static-copy": "^2.1.0"
   }

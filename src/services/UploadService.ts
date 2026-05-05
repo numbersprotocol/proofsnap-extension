@@ -25,7 +25,7 @@ export class UploadService {
   private isUploading = false;
   private isPaused = false;
   private progressCallbacks: Map<string, (progress: UploadProgress) => void> = new Map();
-  private completionCallbacks: Map<string, (assetId: string) => void> = new Map();
+  private completionCallbacks: Set<(assetId: string) => void> = new Set();
   private retryCounts: Map<string, number> = new Map();
   private restoreQueuePromise: Promise<void>;
 
@@ -169,12 +169,14 @@ export class UploadService {
   }
 
   /**
-   * Register completion callback for uploads
+   * Register completion callback for uploads.
+   * Returns an unsubscribe function to remove the callback.
    */
-  onUploadComplete(callback: (assetId: string) => void): void {
-    // Use a unique key for the callback
-    const key = `completion_${Date.now()}_${Math.random()}`;
-    this.completionCallbacks.set(key, callback);
+  onUploadComplete(callback: (assetId: string) => void): () => void {
+    this.completionCallbacks.add(callback);
+    return () => {
+      this.completionCallbacks.delete(callback);
+    };
   }
 
   /**
