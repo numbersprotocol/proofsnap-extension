@@ -1,6 +1,49 @@
 import React, { useState, useEffect } from 'react';
 import { getNumbersApi } from '../services/NumbersApiManager';
 import { storageService } from '../services/StorageService';
+import { logger } from '../utils/logger';
+
+/** Minimum consecutive failed auth attempts before a cooldown is enforced. */
+const RATE_LIMIT_THRESHOLD = 3;
+
+/**
+ * Returns a human-readable error string if the password doesn't meet the
+ * minimum requirements for signup, or null if it passes.
+ */
+function validatePasswordStrength(password: string): string | null {
+    if (password.length < 8) {
+        return 'Password must be at least 8 characters.';
+    }
+    if (!/[A-Z]/.test(password)) {
+        return 'Password must contain at least one uppercase letter.';
+    }
+    if (!/[a-z]/.test(password)) {
+        return 'Password must contain at least one lowercase letter.';
+    }
+    if (!/[0-9!@#$%^&*()\-_=+[\]{};:'",.<>?/\\|`~]/.test(password)) {
+        return 'Password must contain at least one number or special character.';
+    }
+    return null;
+}
+
+/**
+ * Returns a strength label and colour for a password.
+ * Used to render the inline strength indicator in signup mode.
+ */
+function getPasswordStrengthInfo(password: string): { label: string; color: string; widthPct: string } | null {
+    if (!password) return null;
+    let score = 0;
+    if (password.length >= 8) score++;
+    if (/[A-Z]/.test(password)) score++;
+    if (/[a-z]/.test(password)) score++;
+    if (/[0-9]/.test(password)) score++;
+    if (/[!@#$%^&*()\-_=+[\]{};:'",.<>?/\\|`~]/.test(password)) score++;
+
+    if (score <= 2) return { label: 'Weak',   color: '#ef4444', widthPct: '25%'  };
+    if (score === 3) return { label: 'Fair',   color: '#f59e0b', widthPct: '50%'  };
+    if (score === 4) return { label: 'Good',   color: '#3b82f6', widthPct: '75%'  };
+                     return { label: 'Strong', color: '#22c55e', widthPct: '100%' };
+}
 
 const AuthForm: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
     const [isLoginMode, setIsLoginMode] = useState(true);
@@ -8,6 +51,11 @@ const AuthForm: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
+
+    // Rate-limiting state
+    const [failedAttempts, setFailedAttempts] = useState(0);
+    const [cooldownUntil, setCooldownUntil] = useState<number | null>(null);
+    const [cooldownRemaining, setCooldownRemaining] = useState(0);
 
     // Check for persisted errors (e.g. from background Google Auth)
     useEffect(() => {
@@ -18,8 +66,40 @@ const AuthForm: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
         });
     }, []);
 
+    // Countdown ticker for the rate-limit cooldown
+    useEffect(() => {
+        if (!cooldownUntil) return;
+        const interval = setInterval(() => {
+            const remaining = Math.ceil((cooldownUntil - Date.now()) / 1000);
+            if (remaining <= 0) {
+                setCooldownUntil(null);
+                setCooldownRemaining(0);
+                clearInterval(interval);
+            } else {
+                setCooldownRemaining(remaining);
+            }
+        }, 1000);
+        return () => clearInterval(interval);
+    }, [cooldownUntil]);
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+
+        // Enforce rate-limiting cooldown
+        if (cooldownUntil && Date.now() < cooldownUntil) {
+            setError(`Too many failed attempts. Please wait ${cooldownRemaining} second${cooldownRemaining !== 1 ? 's' : ''} before trying again.`);
+            return;
+        }
+
+        // Client-side password strength check for signup
+        if (!isLoginMode) {
+            const pwdError = validatePasswordStrength(password);
+            if (pwdError) {
+                setError(pwdError);
+                return;
+            }
+        }
+
         setLoading(true);
         setError('');
 
@@ -31,9 +111,23 @@ const AuthForm: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
             } else {
                 await numbersApi.signup(email, password);
             }
+            setFailedAttempts(0);
+            setCooldownUntil(null);
             onLogin();
         } catch (err: any) {
-            console.error('Auth error:', err);
+            logger.error('Auth error:', err);
+
+            // Increment failure counter and apply exponential backoff when the
+            // threshold is exceeded: 5 s, 10 s, 20 s, 40 s …
+            const newFailedAttempts = failedAttempts + 1;
+            setFailedAttempts(newFailedAttempts);
+            if (newFailedAttempts >= RATE_LIMIT_THRESHOLD) {
+                const cooldownSeconds = Math.pow(2, newFailedAttempts - RATE_LIMIT_THRESHOLD) * 5;
+                const until = Date.now() + cooldownSeconds * 1000;
+                setCooldownUntil(until);
+                setCooldownRemaining(cooldownSeconds);
+            }
+
             setError(err.message || (isLoginMode ? 'Login failed.' : 'Signup failed.'));
         } finally {
             setLoading(false);
@@ -66,7 +160,7 @@ const AuthForm: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
             // so the user will simply re-open the popup and be logged in.
             onLogin();
         } catch (err: any) {
-            console.error('Google Auth error:', err);
+            logger.error('Google Auth error:', err);
             // If popup was closed during auth, this error won't be seen by user,
             // but it's good for debugging if inspecting.
             setError(err.message || 'Google Authentication failed.');
@@ -74,6 +168,9 @@ const AuthForm: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
             setLoading(false);
         }
     };
+
+    const strengthInfo = !isLoginMode ? getPasswordStrengthInfo(password) : null;
+    const isInCooldown = cooldownUntil !== null && Date.now() < cooldownUntil;
 
     return (
         <div className="auth-container">
@@ -110,8 +207,34 @@ const AuthForm: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
                     className="auth-input"
                 />
 
-                <button type="submit" disabled={loading} className="auth-submit-button">
-                    {loading ? (isLoginMode ? 'Logging in...' : 'Signing up...') : (isLoginMode ? 'Login' : 'Sign Up')}
+                {/* Password strength indicator (signup only) */}
+                {strengthInfo && (
+                    <div className="password-strength">
+                        <div className="password-strength-bar">
+                            <div
+                                className="password-strength-fill"
+                                style={{ backgroundColor: strengthInfo.color, width: strengthInfo.widthPct }}
+                            />
+                        </div>
+                        <span className="password-strength-label" style={{ color: strengthInfo.color }}>
+                            {strengthInfo.label}
+                        </span>
+                    </div>
+                )}
+
+                {/* Password requirements hint (signup only) */}
+                {!isLoginMode && (
+                    <p className="password-hint">
+                        Min. 8 characters with uppercase, lowercase, and a number or symbol.
+                    </p>
+                )}
+
+                <button type="submit" disabled={loading || isInCooldown} className="auth-submit-button">
+                    {isInCooldown
+                        ? `Try again in ${cooldownRemaining}s`
+                        : loading
+                            ? (isLoginMode ? 'Logging in...' : 'Signing up...')
+                            : (isLoginMode ? 'Login' : 'Sign Up')}
                 </button>
             </form>
 

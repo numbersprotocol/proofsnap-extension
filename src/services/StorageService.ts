@@ -9,6 +9,8 @@
  * - Does NOT store large assets (assets handled by IndexedDBService)
  */
 
+import { logger } from '../utils/logger';
+
 export interface StoredAuth {
   token: string;
   email: string;
@@ -137,7 +139,7 @@ export class StorageService {
         // Merge with defaults to ensure new fields are present
         return { ...DEFAULT_SETTINGS, ...saved };
       } catch (error) {
-        console.error('Failed to parse user_settings from storage, resetting to defaults:', error);
+        logger.error('Failed to parse user_settings from storage, resetting to defaults:', error);
         await this.setSettings(DEFAULT_SETTINGS);
         return DEFAULT_SETTINGS;
       }
@@ -175,7 +177,7 @@ export class StorageService {
       try {
         return JSON.parse(result.upload_queue);
       } catch (error) {
-        console.error('Failed to parse upload_queue from storage, resetting to empty queue:', error);
+        logger.error('Failed to parse upload_queue from storage, resetting to empty queue:', error);
         await chrome.storage.local.remove('upload_queue');
         return [];
       }
