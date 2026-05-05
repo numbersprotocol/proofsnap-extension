@@ -483,7 +483,8 @@ export class UploadService {
     // Network/fetch errors (TypeError thrown by the Fetch API)
     if (error instanceof TypeError) return true;
     // HTTP 5xx server errors
-    if (typeof error?.status === 'number' && error.status >= 500 && error.status < 600) return true;
+    const statusCode = typeof error?.statusCode === 'number' ? error.statusCode : error?.status;
+    if (typeof statusCode === 'number' && statusCode >= 500 && statusCode < 600) return true;
     const message: string = (error?.message || '').toLowerCase();
     // Timeout or connection-reset errors
     if (message.includes('timeout') || message.includes('timed out')) return true;
