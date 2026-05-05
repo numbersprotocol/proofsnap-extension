@@ -50,6 +50,7 @@ export class NumbersApiManager {
         email: user.email,
         username: user.username,
       });
+      await this.upload.startProcessing();
     }
   }
 
@@ -68,6 +69,7 @@ export class NumbersApiManager {
         email: user.email,
         username: user.username,
       });
+      await this.upload.startProcessing();
     }
   }
 
@@ -86,6 +88,7 @@ export class NumbersApiManager {
         email: user.email,
         username: user.username,
       });
+      await this.upload.startProcessing();
     }
   }
 

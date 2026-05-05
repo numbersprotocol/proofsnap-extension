@@ -30,6 +30,10 @@ Promise.all([
       updateExtensionBadge();
     });
     logger.log('Upload completion callback registered');
+    if (numbersApi.auth.isAuthenticated()) {
+      // Auth is initialized — safe to process restored queued uploads.
+      await numbersApi.upload.startProcessing();
+    }
   } catch (error) {
     logger.error('Failed to initialize NumbersApiManager:', error);
   }
@@ -187,9 +191,18 @@ async function handleScreenshotCaptureMessage(message: CaptureScreenshotMessage)
 let pendingSelectionResolve: ((value: any) => void) | null = null;
 let pendingSelectionReject: ((reason: any) => void) | null = null;
 let pendingSelectionFromPopup = false;
+let pendingSelectionTimeoutId: ReturnType<typeof setTimeout> | null = null;
+
+function clearPendingSelectionTimeout(): void {
+  if (pendingSelectionTimeoutId !== null) {
+    clearTimeout(pendingSelectionTimeoutId);
+    pendingSelectionTimeoutId = null;
+  }
+}
 
 function rejectPendingSelection(error: unknown): void {
   if (pendingSelectionReject) {
+    clearPendingSelectionTimeout();
     pendingSelectionReject(error);
     pendingSelectionResolve = null;
     pendingSelectionReject = null;
@@ -204,6 +217,16 @@ function rejectPendingSelection(error: unknown): void {
 async function handleSelectionCapture(tab: chrome.tabs.Tab): Promise<any> {
   if (!tab.id) {
     throw new Error('No active tab found');
+  }
+
+  // Validate that the tab is on a page that supports content script injection
+  if (!tab.url?.match(/^https?:\/\//)) {
+    throw new Error('Selection mode is only supported on web pages with http:// or https:// URLs. Chrome extension pages, local files, and browser pages cannot be captured.');
+  }
+
+  // Reject any existing pending selection to avoid resource leaks
+  if (pendingSelectionReject) {
+    rejectPendingSelection(new Error('Selection cancelled: a new selection was started'));
   }
 
   // Inject the selection overlay content script
@@ -223,11 +246,9 @@ async function handleSelectionCapture(tab: chrome.tabs.Tab): Promise<any> {
     pendingSelectionReject = reject;
 
     // Timeout after 60 seconds
-    setTimeout(() => {
+    pendingSelectionTimeoutId = setTimeout(() => {
       if (pendingSelectionReject) {
-        pendingSelectionReject(new Error('Selection timed out'));
-        pendingSelectionResolve = null;
-        pendingSelectionReject = null;
+        rejectPendingSelection(new Error('Selection timed out'));
       }
     }, 60000);
   });
@@ -271,10 +292,12 @@ async function handleSelectionComplete(payload: unknown) {
   if (p.cancelled) {
     const reason = typeof p.reason === 'string' ? p.reason : undefined;
     logger.log('Selection cancelled:', reason);
+    clearPendingSelectionTimeout();
     if (pendingSelectionResolve) {
       pendingSelectionResolve({ cancelled: true, reason });
       pendingSelectionResolve = null;
       pendingSelectionReject = null;
+      pendingSelectionFromPopup = false;
     }
     return;
   }
@@ -426,6 +449,10 @@ async function handleSelectionComplete(payload: unknown) {
     });
 
     // Resolve the pending promise
+    if (pendingSelectionTimeoutId !== null) {
+      clearTimeout(pendingSelectionTimeoutId);
+      pendingSelectionTimeoutId = null;
+    }
     if (pendingSelectionResolve) {
       pendingSelectionResolve({
         assetId,

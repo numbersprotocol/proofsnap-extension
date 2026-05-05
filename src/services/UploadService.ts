@@ -26,17 +26,19 @@ export class UploadService {
   private isPaused = false;
   private progressCallbacks: Map<string, (progress: UploadProgress) => void> = new Map();
   private completionCallbacks: Map<string, (assetId: string) => void> = new Map();
+  private restoreQueuePromise: Promise<void>;
 
   constructor(
     private apiClient: ApiClient,
     private assetStorage = indexedDBService,
     private metadataStorage = storageService
   ) {
-    this.restoreQueue();
+    this.restoreQueuePromise = this.restoreQueue();
   }
 
   /**
-   * Restore upload queue from storage on initialization
+   * Restore upload queue from storage on initialization.
+   * Does NOT start processing — call startProcessing() after auth is ready.
    */
   private async restoreQueue() {
     try {
@@ -52,12 +54,21 @@ export class UploadService {
         }
         this.uploadQueue = assets;
         logger.log(`Restored ${assets.length} assets to upload queue`);
-        // Auto-start processing if not paused
-        this.processQueue();
+        // Processing is deferred until startProcessing() is called after auth init
       }
     } catch (error) {
       logger.error('Failed to restore upload queue:', error);
     }
+  }
+
+  /**
+   * Start processing the upload queue.
+   * Must be called explicitly after authentication has been initialized
+   * to avoid uploading with a missing auth token.
+   */
+  async startProcessing(): Promise<void> {
+    await this.restoreQueuePromise;
+    this.processQueue();
   }
 
   /**
