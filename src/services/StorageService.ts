@@ -56,6 +56,26 @@ const DEFAULT_SETTINGS: StoredSettings = {
   huntModeMessage: '🎯 I spotted this satisfying!',
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function parseStoredSettings(value: string): Partial<StoredSettings> {
+  const parsed = JSON.parse(value) as unknown;
+  if (!isRecord(parsed)) {
+    throw new Error('Invalid user_settings shape');
+  }
+  return parsed as Partial<StoredSettings>;
+}
+
+function parseUploadQueueIds(value: string): string[] {
+  const parsed = JSON.parse(value) as unknown;
+  if (!Array.isArray(parsed) || !parsed.every(id => typeof id === 'string')) {
+    throw new Error('Invalid upload_queue shape');
+  }
+  return parsed;
+}
+
 /**
  * Storage Service
  * Manages chrome.storage.local for small data
@@ -135,7 +155,7 @@ export class StorageService {
     const result = await chrome.storage.local.get('user_settings');
     if (result.user_settings) {
       try {
-        const saved = JSON.parse(result.user_settings);
+        const saved = parseStoredSettings(result.user_settings);
         // Merge with defaults to ensure new fields are present
         return { ...DEFAULT_SETTINGS, ...saved };
       } catch (error) {
@@ -175,7 +195,7 @@ export class StorageService {
     const result = await chrome.storage.local.get('upload_queue');
     if (result.upload_queue) {
       try {
-        return JSON.parse(result.upload_queue);
+        return parseUploadQueueIds(result.upload_queue);
       } catch (error) {
         logger.error('Failed to parse upload_queue from storage, resetting to empty queue:', error);
         await chrome.storage.local.remove('upload_queue');
