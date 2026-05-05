@@ -157,9 +157,17 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendRes
 
     case 'SELECTION_COMPLETE':
       // Handle selection complete from content script
-      handleSelectionComplete(message.payload);
-      sendResponse({ success: true });
-      return false;
+      handleSelectionComplete(message.payload)
+        .then(() => sendResponse({ success: true }))
+        .catch((error) => {
+          logger.error('Selection completion failed:', error);
+          rejectPendingSelection(error);
+          sendResponse({
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      return true;
 
     default:
       logger.warn('Unknown message type:', message.type);
@@ -179,6 +187,15 @@ async function handleScreenshotCaptureMessage(message: CaptureScreenshotMessage)
 let pendingSelectionResolve: ((value: any) => void) | null = null;
 let pendingSelectionReject: ((reason: any) => void) | null = null;
 let pendingSelectionFromPopup = false;
+
+function rejectPendingSelection(error: unknown): void {
+  if (pendingSelectionReject) {
+    pendingSelectionReject(error);
+    pendingSelectionResolve = null;
+    pendingSelectionReject = null;
+    pendingSelectionFromPopup = false;
+  }
+}
 
 /**
  * Handle selection mode capture
@@ -422,12 +439,8 @@ async function handleSelectionComplete(payload: unknown) {
     }
   } catch (error: any) {
     logger.error('Failed to capture selection:', error);
-    if (pendingSelectionReject) {
-      pendingSelectionReject(error);
-      pendingSelectionResolve = null;
-      pendingSelectionReject = null;
-      pendingSelectionFromPopup = false;
-    }
+    rejectPendingSelection(error);
+    throw error;
   }
 }
 
