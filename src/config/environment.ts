@@ -12,7 +12,7 @@ export interface EnvironmentConfig {
 // Static configuration for browser extension
 export const config: EnvironmentConfig = {
   apiUrl: (import.meta.env.VITE_API_URL as string) || 'https://api.numbersprotocol.io/api/v3',
-  enableLogging: import.meta.env.DEV ?? false,
+  enableLogging: import.meta.env.DEV,
   timeout: 60000,
 };
 

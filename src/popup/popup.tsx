@@ -10,6 +10,7 @@ import { storageService } from '../services/StorageService';
 import AuthForm from './AuthForm';
 import InsufficientCreditsNotification from './InsufficientCreditsNotification';
 import { getNumbersApi } from '../services/NumbersApiManager';
+import { logger, validateNid } from '../utils/logger';
 import './popup.css';
 
 /**
@@ -35,10 +36,7 @@ function PopupApp() {
   const [showInsufficientCreditsNotification, setShowInsufficientCreditsNotification] = useState(false);
   const [huntMode, setHuntMode] = useState<HuntModeConfig>({ enabled: false, message: '', hashtags: '' });
   const [sharePromptAsset, setSharePromptAsset] = useState<Asset | null>(null);
-  const [pendingMetadataAsset, setPendingMetadataAsset] = useState<{
-    asset: Asset;
-    autoUpload: boolean;
-  } | null>(null);
+  const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
 
   useEffect(() => {
     loadInitialData();
@@ -70,7 +68,7 @@ function PopupApp() {
       // Load Hunt Mode settings
       const settings = await storageService.getSettings();
       const huntModeActive = settings.huntModeEnabled;
-      console.log('[Hunt Mode Popup] Settings:', { huntModeEnabled: settings.huntModeEnabled, huntModeActive });
+      logger.log('[Hunt Mode Popup] Settings:', { huntModeEnabled: settings.huntModeEnabled, huntModeActive });
       setHuntMode({
         enabled: huntModeActive,
         message: settings.huntModeMessage,
@@ -80,7 +78,7 @@ function PopupApp() {
       // Check for pending share prompt (from upload that completed while popup was closed)
       if (huntModeActive) {
         const pendingNid = await storageService.getAndClearPendingShare();
-        console.log('[Hunt Mode Popup] Pending NID:', pendingNid);
+        logger.log('[Hunt Mode Popup] Pending NID:', pendingNid);
         if (pendingNid) {
           setSharePromptAsset({
             id: 'pending',
@@ -95,7 +93,7 @@ function PopupApp() {
       // Check for insufficient credits error
       await checkCreditStatus(assets);
     } catch (error) {
-      console.error('Failed to load data:', error);
+      logger.error('Failed to load data:', error);
     } finally {
       setIsLoading(false);
     }
@@ -108,33 +106,34 @@ function PopupApp() {
         type: 'CAPTURE_SCREENSHOT',
         payload: {
           mode: mode,
-          fromPopup: true,
+          fromPopup: true, // Skip auto-upload so user can add headline/caption first
         },
       });
 
       if (response.success) {
-        console.log('Screenshot captured:', response.data);
+        logger.log('Screenshot captured:', response.data);
         // Reload assets from IndexedDB
-        const assets = await indexedDBService.getAllAssets();
-        setAssets(assets);
+        const updatedAssets = await indexedDBService.getAllAssets();
+        setAssets(updatedAssets);
 
-        // Show metadata modal for the just-captured asset
-        const capturedAsset = assets.find((a: Asset) => a.id === response.data.assetId);
-        if (capturedAsset) {
-          setPendingMetadataAsset({
-            asset: capturedAsset,
-            autoUpload: response.data.autoUpload === true,
-          });
+        // Find the newly created asset and open edit modal for headline/caption
+        const assetId = response.data?.assetId;
+        if (assetId) {
+          const newAsset = updatedAssets.find(a => a.id === assetId);
+          if (newAsset) {
+            // Open the edit modal so user can add headline/caption before upload
+            setEditingAsset(newAsset);
+          }
         }
       } else if (response.cancelled) {
         // User cancelled selection - do nothing
-        console.log('Screenshot cancelled');
+        logger.log('Screenshot cancelled');
       } else {
-        console.error('Capture failed:', response.error);
+        logger.error('Capture failed:', response.error);
         alert('Failed to capture screenshot: ' + response.error);
       }
     } catch (error) {
-      console.error('Capture error:', error);
+      logger.error('Capture error:', error);
       alert('Failed to capture screenshot');
     } finally {
       setCapturing(false);
@@ -149,44 +148,56 @@ function PopupApp() {
       });
 
       if (response.success) {
-        console.log('Asset queued for upload');
+        logger.log('Asset queued for upload');
         // No need to reload - UPLOAD_PROGRESS listener will handle it
       } else {
         alert('Failed to queue upload: ' + response.error);
       }
     } catch (error) {
-      console.error('Upload error:', error);
+      logger.error('Upload error:', error);
       alert('Failed to upload asset');
     }
   }
 
-  async function handleMetadataSubmit(headline: string, caption: string) {
-    if (!pendingMetadataAsset) return;
+  async function handleUpdateAssetMetadata(assetId: string, headline: string, caption: string) {
+    try {
+      // Get current asset to preserve existing metadata
+      const currentAsset = await indexedDBService.getAsset(assetId);
+      if (!currentAsset) {
+        throw new Error('Asset not found');
+      }
 
-    const { asset, autoUpload } = pendingMetadataAsset;
-
-    // Update asset metadata in IndexedDB if user provided values
-    if (headline || caption) {
-      const updatedMetadata = { ...asset.metadata };
-      if (headline) updatedMetadata.headline = headline;
-      if (caption) updatedMetadata.caption = caption;
-
-      await indexedDBService.updateAsset(asset.id, {
-        metadata: updatedMetadata,
+      // Merge new metadata with existing
+      await indexedDBService.updateAsset(assetId, {
+        metadata: {
+          ...currentAsset.metadata,
+          headline: headline || undefined,
+          caption: caption || undefined,
+        },
       });
+      // Reload assets to reflect changes
+      const updatedAssets = await indexedDBService.getAllAssets();
+      setAssets(updatedAssets);
+      setEditingAsset(null);
+    } catch (error) {
+      logger.error('Failed to update asset metadata:', error);
+      alert('Failed to save metadata');
     }
+  }
 
-    // Clear modal
-    setPendingMetadataAsset(null);
-
-    // Trigger upload if auto-upload was enabled
-    if (autoUpload) {
-      await handleUpload(asset.id);
+  async function handleDeleteAsset(assetId: string) {
+    if (!confirm('Are you sure you want to delete this screenshot?')) {
+      return;
     }
-
-    // Refresh asset list
-    const updatedAssets = await indexedDBService.getAllAssets();
-    setAssets(updatedAssets);
+    try {
+      await indexedDBService.deleteAsset(assetId);
+      const updatedAssets = await indexedDBService.getAllAssets();
+      setAssets(updatedAssets);
+      setEditingAsset(null);
+    } catch (error) {
+      logger.error('Failed to delete asset:', error);
+      alert('Failed to delete screenshot');
+    }
   }
 
   function openOptions() {
@@ -237,7 +248,7 @@ function PopupApp() {
         const allAssets = await indexedDBService.getAllAssets();
         await Promise.all(allAssets.map((asset) => indexedDBService.deleteAsset(asset.id)));
       } catch (error) {
-        console.error('Failed to clear IndexedDB assets on logout:', error);
+        logger.error('Failed to clear IndexedDB assets on logout:', error);
       }
 
       setIsAuthenticated(false);
@@ -253,7 +264,7 @@ function PopupApp() {
     const handleMessage = async (message: any) => {
       if (message.type === 'UPLOAD_PROGRESS') {
         const payload = message.payload;
-        
+
         // Reload assets to show updated progress
         const updatedAssets = await indexedDBService.getAllAssets();
         setAssets(updatedAssets);
@@ -328,22 +339,25 @@ function PopupApp() {
       <AssetList
         assets={assets}
         onUpload={handleUpload}
+        onEdit={setEditingAsset}
         huntMode={huntMode}
       />
+
+      {editingAsset && (
+        <AssetEditModal
+          asset={editingAsset}
+          onSave={handleUpdateAssetMetadata}
+          onUpload={handleUpload}
+          onDelete={handleDeleteAsset}
+          onClose={() => setEditingAsset(null)}
+        />
+      )}
 
       {sharePromptAsset && (
         <SharePromptModal
           asset={sharePromptAsset}
           huntMode={huntMode}
           onClose={() => setSharePromptAsset(null)}
-        />
-      )}
-
-      {pendingMetadataAsset && (
-        <MetadataModal
-          asset={pendingMetadataAsset.asset}
-          autoUpload={pendingMetadataAsset.autoUpload}
-          onSubmit={handleMetadataSubmit}
         />
       )}
 
@@ -423,9 +437,9 @@ function CaptureSection({
   return (
     <div className="capture-section">
       {/* Capture Mode Toggle */}
-      <div className="capture-mode-toggle" style={{ 
-        display: 'flex', 
-        gap: '4px', 
+      <div className="capture-mode-toggle" style={{
+        display: 'flex',
+        gap: '4px',
         marginBottom: '12px',
         background: 'rgba(0, 0, 0, 0.1)',
         borderRadius: '8px',
@@ -525,10 +539,12 @@ function CaptureSection({
 function AssetList({
   assets,
   onUpload,
+  onEdit,
   huntMode
 }: {
   assets: Asset[];
   onUpload: (id: string) => void;
+  onEdit: (asset: Asset) => void;
   huntMode: HuntModeConfig;
 }) {
   return (
@@ -546,7 +562,7 @@ function AssetList({
       ) : (
         <div className="asset-grid">
           {assets.slice(0, 6).map((asset) => (
-            <AssetThumbnail key={asset.id} asset={asset} onUpload={onUpload} huntMode={huntMode} />
+            <AssetThumbnail key={asset.id} asset={asset} onUpload={onUpload} onEdit={onEdit} huntMode={huntMode} />
           ))}
         </div>
       )}
@@ -570,7 +586,7 @@ function PopupFooter({ onOpenDashboard }: { onOpenDashboard: () => void }) {
 /**
  * Asset Thumbnail Component
  */
-function AssetThumbnail({ asset, onUpload, huntMode }: { asset: Asset; onUpload?: (assetId: string) => void; huntMode?: HuntModeConfig }) {
+function AssetThumbnail({ asset, onUpload, onEdit, huntMode }: { asset: Asset; onUpload?: (assetId: string) => void; onEdit?: (asset: Asset) => void; huntMode?: HuntModeConfig }) {
   const date = new Date(asset.createdAt);
   const statusColors: Record<string, string> = {
     draft: '#808080',
@@ -611,6 +627,13 @@ function AssetThumbnail({ asset, onUpload, huntMode }: { asset: Asset; onUpload?
     ),
   };
 
+  const handleThumbnailClick = () => {
+    // Open edit modal for draft or failed assets
+    if (onEdit && (asset.status === 'draft' || asset.status === 'failed')) {
+      onEdit(asset);
+    }
+  };
+
   const handleUploadClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (onUpload && (asset.status === 'draft' || asset.status === 'failed')) {
@@ -620,18 +643,20 @@ function AssetThumbnail({ asset, onUpload, huntMode }: { asset: Asset; onUpload?
 
   const handleViewOnBlockchain = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (asset.metadata?.nid) {
+    const nid = asset.metadata?.nid;
+    if (validateNid(nid)) {
       // Open Numbers Protocol asset page in new tab
       chrome.tabs.create({
-        url: `https://asset.captureapp.xyz/${asset.metadata.nid}`,
+        url: `https://asset.captureapp.xyz/${nid}`,
       });
     }
   };
 
   const handleShareToX = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (asset.metadata?.nid && huntMode) {
-      const verifyUrl = `https://asset.captureapp.xyz/${asset.metadata.nid}`;
+    const nid = asset.metadata?.nid;
+    if (validateNid(nid) && huntMode) {
+      const verifyUrl = `https://asset.captureapp.xyz/${nid}`;
       const text = `${huntMode.message} ${verifyUrl} ${huntMode.hashtags}`;
       const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`;
       chrome.tabs.create({ url: twitterUrl });
@@ -640,19 +665,20 @@ function AssetThumbnail({ asset, onUpload, huntMode }: { asset: Asset; onUpload?
 
   const handleCopyLink = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (asset.metadata?.nid) {
-      const verifyUrl = `https://asset.captureapp.xyz/${asset.metadata.nid}`;
+    const nid = asset.metadata?.nid;
+    if (validateNid(nid)) {
+      const verifyUrl = `https://asset.captureapp.xyz/${nid}`;
       try {
         await navigator.clipboard.writeText(verifyUrl);
         // Could add toast notification here
       } catch (err) {
-        console.error('Failed to copy:', err);
+        logger.error('Failed to copy:', err);
       }
     }
   };
 
   return (
-    <div className="asset-thumbnail">
+    <div className="asset-thumbnail" onClick={handleThumbnailClick}>
       <img src={asset.uri} alt="Screenshot" />
       <div className="asset-info">
         <div className="asset-meta">
@@ -778,80 +804,139 @@ function AssetThumbnail({ asset, onUpload, huntMode }: { asset: Asset; onUpload?
 }
 
 /**
- * Metadata Modal Component
- * Shows after capture to allow adding optional headline and caption
+ * Asset Edit Modal Component
+ * Allows users to add headline and caption before uploading
  */
-function MetadataModal({
+function AssetEditModal({
   asset,
-  autoUpload,
-  onSubmit,
+  onSave,
+  onUpload,
+  onDelete,
+  onClose,
 }: {
   asset: Asset;
-  autoUpload: boolean;
-  onSubmit: (headline: string, caption: string) => void;
+  onSave: (assetId: string, headline: string, caption: string) => Promise<void>;
+  onUpload: (assetId: string) => void;
+  onDelete: (assetId: string) => void;
+  onClose: () => void;
 }) {
-  const [headline, setHeadline] = useState('');
-  const [caption, setCaption] = useState('');
+  const [headline, setHeadline] = useState(asset.metadata?.headline || '');
+  const [caption, setCaption] = useState(asset.metadata?.caption || '');
+  const [isSaving, setIsSaving] = useState(false);
 
-  const handleSubmit = () => {
-    onSubmit(headline.trim(), caption.trim());
+  const handleSaveAndUpload = async () => {
+    setIsSaving(true);
+    try {
+      // Save metadata first
+      await onSave(asset.id, headline, caption);
+      // Then upload
+      onUpload(asset.id);
+      onClose();
+    } catch (error) {
+      logger.error('Failed to save and upload:', error);
+      setIsSaving(false);
+    }
   };
 
-  const handleSkip = () => {
-    onSubmit('', '');
+  const handleSaveDraft = async () => {
+    setIsSaving(true);
+    try {
+      await onSave(asset.id, headline, caption);
+      onClose();
+    } catch (error) {
+      logger.error('Failed to save draft:', error);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
-    <div className="notification-overlay">
-      <div className="notification-card metadata-modal">
-        <div className="notification-header">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-          </svg>
+    <div className="edit-modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="edit-modal">
+        <div className="edit-modal-header">
           <h3>Add Details</h3>
+          <button className="close-button" onClick={onClose} aria-label="Close">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
         </div>
 
-        <div className="metadata-preview">
+        {/* Preview image */}
+        <div className="edit-modal-preview">
           <img src={asset.uri} alt="Screenshot preview" />
         </div>
 
-        <div className="notification-body">
-          <div className="metadata-field">
-            <label htmlFor="headline-input">Headline</label>
+        <div className="edit-modal-form">
+          <div className="form-group">
+            <label htmlFor="headline">Headline</label>
             <input
-              id="headline-input"
               type="text"
-              className="metadata-input"
-              placeholder="Short title for your snap"
+              id="headline"
               value={headline}
               onChange={(e) => setHeadline(e.target.value)}
+              placeholder="Add a headline (optional)"
               maxLength={100}
-              autoFocus
             />
           </div>
-          <div className="metadata-field">
-            <label htmlFor="caption-input">Caption</label>
+
+          <div className="form-group">
+            <label htmlFor="caption">Caption</label>
             <textarea
-              id="caption-input"
-              className="metadata-input metadata-textarea"
-              placeholder="Describe what this screenshot shows..."
+              id="caption"
               value={caption}
               onChange={(e) => setCaption(e.target.value)}
-              maxLength={500}
+              placeholder="Add a caption (optional)"
               rows={3}
+              maxLength={500}
             />
           </div>
         </div>
 
-        <div className="notification-actions">
-          <button className="primary-button metadata-submit" onClick={handleSubmit}>
-            {autoUpload ? 'Save & Upload' : 'Save'}
+        <div className="edit-modal-actions">
+          <button
+            className="btn-secondary"
+            onClick={handleSaveDraft}
+            disabled={isSaving}
+          >
+            Save as Draft
           </button>
-          <button className="secondary-button" onClick={handleSkip}>
-            Skip
+          <button
+            className="btn-primary"
+            onClick={handleSaveAndUpload}
+            disabled={isSaving}
+          >
+            {isSaving ? 'Processing...' : 'Register to Numbers'}
           </button>
         </div>
+
+        <div className="edit-modal-delete">
+          <button
+            className="btn-delete"
+            onClick={() => onDelete(asset.id)}
+            disabled={isSaving}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              <line x1="10" y1="11" x2="10" y2="17"></line>
+              <line x1="14" y1="11" x2="14" y2="17"></line>
+            </svg>
+            Delete Screenshot
+          </button>
+        </div>
+
+        {asset.status === 'failed' && asset.metadata?.error && (
+          <div className="edit-modal-error">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="8" x2="12" y2="12"></line>
+              <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+            <span>Previous upload failed: {asset.metadata.error}</span>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -886,7 +971,7 @@ function SharePromptModal({
       await navigator.clipboard.writeText(verifyUrl);
       onClose();
     } catch (err) {
-      console.error('Failed to copy:', err);
+      logger.error('Failed to copy:', err);
     }
   };
 

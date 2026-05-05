@@ -34,24 +34,6 @@ export interface SelectionCoordinates {
   height: number;
 }
 
-// Storage types for chrome.storage
-export interface StorageKeys {
-  auth_token?: string;
-  user_data?: string; // JSON string
-  assets?: string; // JSON string of Asset[]
-  settings?: string; // JSON string of UserSettings
-  upload_queue?: string; // JSON string of Asset[]
-}
-
-export interface UserSettings {
-  autoUpload: boolean;
-  includeLocation: boolean;
-  includeTimestamp: boolean;
-  defaultCaptureMode: CaptureMode;
-  screenshotFormat: 'png' | 'jpeg';
-  screenshotQuality: number;
-}
-
 // Message passing types for extension communication
 export type MessageType =
   | 'CAPTURE_SCREENSHOT'
@@ -77,23 +59,6 @@ export interface CaptureScreenshotMessage {
   payload: {
     mode: CaptureMode;
     options?: Partial<ScreenshotOptions>;
-    fromPopup?: boolean;
-  };
-}
-
-export interface ScreenshotCapturedMessage {
-  type: 'SCREENSHOT_CAPTURED';
-  payload: {
-    dataUrl: string;
-    timestamp: Date;
-    location?: GeolocationPosition;
-  };
-}
-
-export interface UploadProgressMessage {
-  type: 'UPLOAD_PROGRESS';
-  payload: {
-    assetId: string;
-    progress: number; // 0-100
+    fromPopup?: boolean; // When true, skip auto-upload to allow adding metadata first
   };
 }

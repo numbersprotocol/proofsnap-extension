@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import { storageService, StoredSettings } from '../services/StorageService';
+import { logger } from '../utils/logger';
 import './options.css';
 
 /**
@@ -199,7 +200,7 @@ function LocationSettings({
         });
         setPermissionStatus('granted');
         onSave({ includeLocation: true });
-      } catch (error) {
+      } catch {
         setPermissionStatus('denied');
         alert('Location permission was denied. Please enable it in your browser settings to use this feature.');
       }
@@ -464,7 +465,7 @@ function OptionsApp() {
       const storedSettings = await storageService.getSettings();
       setSettings(storedSettings);
     } catch (error) {
-      console.error('Failed to load settings:', error);
+      logger.error('Failed to load settings:', error);
     } finally {
       setLoading(false);
     }
@@ -490,7 +491,7 @@ function OptionsApp() {
           setTimeout(() => savedMessage.classList.remove('show'), 2000);
         }
       } catch (error) {
-        console.error('Failed to save settings:', error);
+        logger.error('Failed to save settings:', error);
         alert('Failed to save settings');
       }
     }, 300);

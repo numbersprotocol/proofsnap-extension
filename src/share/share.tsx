@@ -4,15 +4,29 @@
  */
 
 import { storageService } from '../services/StorageService';
+import { logger, validateNid } from '../utils/logger';
 import './share.css';
 
 async function init() {
   // Get nid from URL params
   const params = new URLSearchParams(window.location.search);
   const nid = params.get('nid');
-  
+
+  const root = document.getElementById('root');
+  if (!root) return;
+
   if (!nid) {
-    document.getElementById('root')!.innerHTML = '<p>No asset to share</p>';
+    const p = document.createElement('p');
+    p.textContent = 'No asset to share';
+    root.appendChild(p);
+    return;
+  }
+
+  // Validate nid to only allow safe characters (alphanumeric, hyphens, underscores)
+  if (!validateNid(nid)) {
+    const p = document.createElement('p');
+    p.textContent = 'Invalid asset ID';
+    root.appendChild(p);
     return;
   }
 
@@ -22,8 +36,8 @@ async function init() {
   const shareText = `${settings.huntModeMessage} ${verifyUrl} ${settings.huntModeHashtags}`;
   const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`;
 
-  // Render UI
-  document.getElementById('root')!.innerHTML = `
+  // Render static UI structure (no user input interpolated into innerHTML)
+  root.innerHTML = `
     <div class="share-container">
       <div class="share-icon">🎯</div>
       <h1 class="share-title">Snap Verified!</h1>
@@ -31,10 +45,8 @@ async function init() {
         Your screenshot is now on the blockchain!<br>
         Share it on X to join the AI Hunt event.
       </p>
-      
-      <div class="verify-link">
-        <a href="${verifyUrl}" target="_blank">${verifyUrl}</a>
-      </div>
+
+      <div class="verify-link" id="verifyLinkContainer"></div>
 
       <div class="share-buttons">
         <button class="share-btn share-btn-x" id="shareX">
@@ -43,7 +55,7 @@ async function init() {
           </svg>
           Share on X
         </button>
-        
+
         <button class="share-btn share-btn-copy" id="copyLink">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
@@ -51,7 +63,7 @@ async function init() {
           </svg>
           Copy Verification Link
         </button>
-        
+
         <button class="share-btn share-btn-close" id="closeBtn">
           Maybe Later
         </button>
@@ -60,25 +72,47 @@ async function init() {
     <div class="copied-toast" id="toast">Link copied!</div>
   `;
 
-  // Event listeners
-  document.getElementById('shareX')!.addEventListener('click', () => {
-    window.open(twitterUrl, '_blank');
-  });
+  // Inject the verify link using safe DOM APIs to prevent XSS
+  const verifyLinkContainer = document.getElementById('verifyLinkContainer');
+  if (verifyLinkContainer) {
+    const link = document.createElement('a');
+    link.href = verifyUrl;
+    link.textContent = verifyUrl;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    verifyLinkContainer.appendChild(link);
+  }
 
-  document.getElementById('copyLink')!.addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText(verifyUrl);
-      const toast = document.getElementById('toast')!;
-      toast.classList.add('show');
-      setTimeout(() => toast.classList.remove('show'), 2000);
-    } catch (err) {
-      console.error('Failed to copy:', err);
-    }
-  });
+  // Event listeners with safe element access
+  const shareXBtn = document.getElementById('shareX');
+  if (shareXBtn) {
+    shareXBtn.addEventListener('click', () => {
+      window.open(twitterUrl, '_blank', 'noopener,noreferrer');
+    });
+  }
 
-  document.getElementById('closeBtn')!.addEventListener('click', () => {
-    window.close();
-  });
+  const copyLinkBtn = document.getElementById('copyLink');
+  if (copyLinkBtn) {
+    copyLinkBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(verifyUrl);
+        const toast = document.getElementById('toast');
+        if (toast) {
+          toast.classList.add('show');
+          setTimeout(() => toast.classList.remove('show'), 2000);
+        }
+      } catch (err) {
+        logger.error('Failed to copy:', err);
+      }
+    });
+  }
+
+  const closeBtn = document.getElementById('closeBtn');
+  if (closeBtn) {
+    closeBtn.addEventListener('click', () => {
+      window.close();
+    });
+  }
 }
 
 init();

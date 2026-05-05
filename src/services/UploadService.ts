@@ -7,6 +7,7 @@ import { ApiClient } from './ApiClient';
 import { storageService } from './StorageService';
 import { indexedDBService } from './IndexedDBService';
 import type { Asset } from './IndexedDBService';
+import { logger, validateNid } from '../utils/logger';
 
 export interface UploadProgress {
   assetId: string;
@@ -25,17 +26,23 @@ export class UploadService {
   private isPaused = false;
   private progressCallbacks: Map<string, (progress: UploadProgress) => void> = new Map();
   private completionCallbacks: Set<(assetId: string) => void> = new Set();
+  private retryCounts: Map<string, number> = new Map();
+  private restoreQueuePromise: Promise<void>;
+
+  private readonly MAX_RETRIES = 3;
+  private readonly RETRY_DELAYS = [2000, 4000, 8000]; // 2s, 4s, 8s
 
   constructor(
     private apiClient: ApiClient,
     private assetStorage = indexedDBService,
     private metadataStorage = storageService
   ) {
-    this.restoreQueue();
+    this.restoreQueuePromise = this.restoreQueue();
   }
 
   /**
-   * Restore upload queue from storage on initialization
+   * Restore upload queue from storage on initialization.
+   * Does NOT start processing — call startProcessing() after auth is ready.
    */
   private async restoreQueue() {
     try {
@@ -50,13 +57,22 @@ export class UploadService {
           }
         }
         this.uploadQueue = assets;
-        console.log(`Restored ${assets.length} assets to upload queue`);
-        // Auto-start processing if not paused
-        this.processQueue();
+        logger.log(`Restored ${assets.length} assets to upload queue`);
+        // Processing is deferred until startProcessing() is called after auth init
       }
     } catch (error) {
-      console.error('Failed to restore upload queue:', error);
+      logger.error('Failed to restore upload queue:', error);
     }
+  }
+
+  /**
+   * Start processing the upload queue.
+   * Must be called explicitly after authentication has been initialized
+   * to avoid uploading with a missing auth token.
+   */
+  async startProcessing(): Promise<void> {
+    await this.restoreQueuePromise;
+    this.processQueue();
   }
 
   /**
@@ -68,7 +84,7 @@ export class UploadService {
     // Check if already in queue
     const exists = this.uploadQueue.find(a => a.id === asset.id);
     if (exists) {
-      console.log('Asset already in upload queue:', asset.id);
+      logger.log('Asset already in upload queue:', asset.id);
       return;
     }
 
@@ -98,7 +114,7 @@ export class UploadService {
 
     if (addedCount > 0) {
       await this.saveQueue();
-      console.log(`Added ${addedCount} assets to upload queue`);
+      logger.log(`Added ${addedCount} assets to upload queue`);
 
       // Unpause queue if this is a manual retry
       this.maybeUnpauseForManualRetry(isManualRetry);
@@ -113,7 +129,7 @@ export class UploadService {
    */
   private maybeUnpauseForManualRetry(isManualRetry: boolean): void {
     if (isManualRetry && this.isPaused) {
-      console.log('Unpausing upload queue for manual retry');
+      logger.log('Unpausing upload queue for manual retry');
       this.setPaused(false);
     }
   }
@@ -190,7 +206,7 @@ export class UploadService {
       try {
         callback(assetId);
       } catch (error) {
-        console.error('Error in completion callback:', error);
+        logger.error('Error in completion callback:', error);
       }
     });
 
@@ -222,7 +238,7 @@ export class UploadService {
     try {
       await this.uploadAsset(asset);
     } catch (error) {
-      console.error('Upload failed:', error);
+      logger.error('Upload failed:', error);
       await this.handleUploadError(asset, error);
     }
 
@@ -235,7 +251,7 @@ export class UploadService {
    * Upload a single asset
    */
   private async uploadAsset(asset: Asset): Promise<void> {
-    console.log('Starting upload for asset:', asset.id);
+    logger.log('Starting upload for asset:', asset.id);
 
     await this.updateAssetStatusToUploading(asset);
     const progressInterval = this.startProgressSimulation(asset);
@@ -245,11 +261,17 @@ export class UploadService {
       const result = await this.apiClient.postWithAuth<any>('/assets/', formData);
 
       clearInterval(progressInterval);
-      console.log('Upload successful:', result);
+      logger.log('Upload successful:', result);
 
       await this.handleUploadSuccess(asset, result);
     } catch (error) {
       clearInterval(progressInterval);
+      const duplicateResult = this.getDuplicateUploadResult(error);
+      if (duplicateResult) {
+        logger.log('Upload already exists, treating duplicate as success:', duplicateResult);
+        await this.handleUploadSuccess(asset, duplicateResult);
+        return;
+      }
       throw error;
     }
   }
@@ -328,9 +350,12 @@ export class UploadService {
    * Handle successful upload: update asset, clean up, and notify
    */
   private async handleUploadSuccess(asset: Asset, result: any): Promise<void> {
+    // Clear any retry state for this asset
+    this.retryCounts.delete(asset.id);
+
     // The API returns 'id' which is the same as the nid/cid
     const nid = result.id || result.cid || result.nid;
-    console.log('[UploadService] handleUploadSuccess called with nid:', nid);
+    logger.log('[UploadService] handleUploadSuccess called with nid:', nid);
     
     // Update asset with uploaded status and metadata
     asset.status = 'uploaded';
@@ -348,26 +373,26 @@ export class UploadService {
     });
 
     // Check if Hunt Mode is enabled and open share page
-    if (nid) {
+    if (validateNid(nid)) {
       try {
         const settings = await this.metadataStorage.getSettings();
-        console.log('[Hunt Mode] Settings loaded:', { 
+        logger.log('[Hunt Mode] Settings loaded:', {
           huntModeEnabled: settings.huntModeEnabled
         });
         
         if (settings.huntModeEnabled) {
-          console.log('[Hunt Mode] Opening share page for nid:', nid);
+          logger.log('[Hunt Mode] Opening share page for nid:', nid);
           // Open share page in new tab
           const shareUrl = chrome.runtime.getURL(`share.html?nid=${nid}`);
-          console.log('[Hunt Mode] Share URL:', shareUrl);
+          logger.log('[Hunt Mode] Share URL:', shareUrl);
           await chrome.tabs.create({
             url: shareUrl,
             active: true,
           });
-          console.log('[Hunt Mode] Tab created successfully');
+          logger.log('[Hunt Mode] Tab created successfully');
         }
       } catch (error) {
-        console.error('[Hunt Mode] Error opening share page:', error);
+        logger.error('[Hunt Mode] Error opening share page:', error);
       }
     }
 
@@ -380,7 +405,7 @@ export class UploadService {
 
     // Clean up: delete uploaded asset from IndexedDB to save disk space
     await this.assetStorage.deleteAsset(asset.id);
-    console.log('Deleted uploaded asset from local storage:', asset.id);
+    logger.log('Deleted uploaded asset from local storage:', asset.id);
 
     // Notify completion
     this.emitCompletion(asset.id);
@@ -391,20 +416,48 @@ export class UploadService {
    */
   private async handleUploadError(asset: Asset, error: any): Promise<void> {
     const errorMessage = error?.message || 'Upload failed';
-    
-    // Check for insufficient balance
-    let errorType;
+
+    // Insufficient balance is not retryable — pause and mark failed immediately
     if (this.isInsufficientBalanceError(error)) {
-      console.warn('Insufficient balance detected, pausing uploads');
+      logger.warn('Insufficient balance detected, pausing uploads');
       this.setPaused(true);
-      errorType = 'insufficient_credits';
 
       // Reset notification dismissal to show alert for this insufficient credits error
       // User may have dismissed it previously, but needs to be notified of the new failure
       await this.metadataStorage.clearInsufficientCreditsNotificationDismissed();
+
+      await this.markAssetFailed(asset, errorMessage, 'insufficient_credits');
+      return;
     }
 
-    // Update asset status
+    // Transient errors (network blips, 5xx, timeouts) — retry with backoff
+    if (this.isTransientError(error)) {
+      const retryCount = this.retryCounts.get(asset.id) || 0;
+      if (retryCount < this.MAX_RETRIES) {
+        this.retryCounts.set(asset.id, retryCount + 1);
+        const delay = this.RETRY_DELAYS[retryCount];
+        logger.warn(
+          `Transient upload error for ${asset.id}, retrying in ${delay}ms ` +
+          `(attempt ${retryCount + 1}/${this.MAX_RETRIES}):`,
+          errorMessage
+        );
+        await this.sleep(delay);
+        // Re-add to front of queue so it is next to be processed
+        this.uploadQueue.unshift(asset);
+        return;
+      }
+      // All retries exhausted
+      this.retryCounts.delete(asset.id);
+      logger.error(`Upload failed after ${this.MAX_RETRIES} retries for asset ${asset.id}`);
+    }
+
+    await this.markAssetFailed(asset, errorMessage);
+  }
+
+  /**
+   * Persist failed status to storage and notify listeners
+   */
+  private async markAssetFailed(asset: Asset, errorMessage: string, errorType?: string): Promise<void> {
     asset.status = 'failed';
     asset.metadata = {
       ...asset.metadata,
@@ -423,6 +476,56 @@ export class UploadService {
       status: 'failed',
       error: errorMessage,
     });
+  }
+
+  /**
+   * Return true for errors that are likely transient and safe to retry
+   */
+  private isTransientError(error: any): boolean {
+    // Network/fetch errors (TypeError thrown by the Fetch API)
+    if (error instanceof TypeError) return true;
+    // HTTP 5xx server errors
+    const statusCode = typeof error?.statusCode === 'number' ? error.statusCode : error?.status;
+    if (typeof statusCode === 'number' && statusCode >= 500 && statusCode < 600) return true;
+    const message: string = (error?.message || '').toLowerCase();
+    // Timeout or connection-reset errors
+    if (message.includes('timeout') || message.includes('timed out')) return true;
+    if (message.includes('connection')) return true;
+    return false;
+  }
+
+  /**
+   * Resolve after a given number of milliseconds
+   */
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Convert duplicate upload errors into a successful upload result.
+   * The backend returns the existing asset cid in error.details when the same
+   * file content has already been registered.
+   */
+  private getDuplicateUploadResult(error: any): any | null {
+    if (error?.data?.error?.type !== 'duplicate_asset_not_allowed') {
+      return null;
+    }
+
+    const details = error.data.error.details;
+    const duplicate = Array.isArray(details) ? details[0] : details;
+    const cid = duplicate?.cid;
+
+    if (!cid) {
+      return null;
+    }
+
+    return {
+      id: cid,
+      cid,
+      nid: cid,
+      duplicate: true,
+      duplicateAssetId: duplicate?.id,
+    };
   }
 
   /**
@@ -495,7 +598,7 @@ export class UploadService {
     const failedAssets = assets.filter(a => a.status === 'failed');
     
     if (failedAssets.length > 0) {
-      console.log(`Retrying ${failedAssets.length} failed uploads`);
+      logger.log(`Retrying ${failedAssets.length} failed uploads`);
       // Pass isManualRetry=true to unpause queue if it was paused
       await this.addMultipleToQueue(failedAssets, true);
     }
