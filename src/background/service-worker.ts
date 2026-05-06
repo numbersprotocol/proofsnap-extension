@@ -183,15 +183,22 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendRes
  * Handle screenshot capture from message
  */
 async function handleScreenshotCaptureMessage(message: CaptureScreenshotMessage) {
-  const { mode, options = {}, fromPopup } = message.payload;
-  return await handleScreenshotCapture(mode, { ...options, fromPopup });
+  const { mode, options = {}, fromPopup, target } = message.payload;
+  return await handleScreenshotCapture(mode, { ...options, fromPopup, target });
 }
 
 // Store pending selection resolve/reject callbacks
+type PendingSelectionTarget = {
+  tabId: number;
+  windowId: number;
+  url?: string;
+};
+
 let pendingSelectionResolve: ((value: any) => void) | null = null;
 let pendingSelectionReject: ((reason: any) => void) | null = null;
 let pendingSelectionFromPopup = false;
 let pendingSelectionTimeoutId: ReturnType<typeof setTimeout> | null = null;
+let pendingSelectionTarget: PendingSelectionTarget | null = null;
 
 function clearPendingSelectionTimeout(): void {
   if (pendingSelectionTimeoutId !== null) {
@@ -200,22 +207,28 @@ function clearPendingSelectionTimeout(): void {
   }
 }
 
+function resetPendingSelectionState(): void {
+  pendingSelectionResolve = null;
+  pendingSelectionReject = null;
+  pendingSelectionFromPopup = false;
+  pendingSelectionTarget = null;
+}
+
 function rejectPendingSelection(error: unknown): void {
-  if (pendingSelectionReject) {
-    clearPendingSelectionTimeout();
-    pendingSelectionReject(error);
-    pendingSelectionResolve = null;
-    pendingSelectionReject = null;
-    pendingSelectionFromPopup = false;
+  const reject = pendingSelectionReject;
+  clearPendingSelectionTimeout();
+  if (reject) {
+    reject(error);
   }
+  resetPendingSelectionState();
 }
 
 /**
  * Handle selection mode capture
  * Injects content script and waits for user selection
  */
-async function handleSelectionCapture(tab: chrome.tabs.Tab): Promise<any> {
-  if (!tab.id) {
+async function handleSelectionCapture(tab: chrome.tabs.Tab, fromPopup: boolean): Promise<any> {
+  if (!tab.id || !tab.windowId) {
     throw new Error('No active tab found');
   }
 
@@ -229,6 +242,8 @@ async function handleSelectionCapture(tab: chrome.tabs.Tab): Promise<any> {
     rejectPendingSelection(new Error('Selection cancelled: a new selection was started'));
   }
 
+  pendingSelectionFromPopup = fromPopup;
+
   // Inject the selection overlay content script
   try {
     await chrome.scripting.executeScript({
@@ -240,10 +255,17 @@ async function handleSelectionCapture(tab: chrome.tabs.Tab): Promise<any> {
     throw new Error('Failed to start selection mode. Make sure you are on a valid web page.');
   }
 
+  const selectionTarget: PendingSelectionTarget = {
+    tabId: tab.id,
+    windowId: tab.windowId,
+    url: tab.url,
+  };
+
   // Wait for selection to complete via message
   return new Promise((resolve, reject) => {
     pendingSelectionResolve = resolve;
     pendingSelectionReject = reject;
+    pendingSelectionTarget = selectionTarget;
 
     // Timeout after 60 seconds
     pendingSelectionTimeoutId = setTimeout(() => {
@@ -293,12 +315,11 @@ async function handleSelectionComplete(payload: unknown) {
     const reason = typeof p.reason === 'string' ? p.reason : undefined;
     logger.log('Selection cancelled:', reason);
     clearPendingSelectionTimeout();
-    if (pendingSelectionResolve) {
-      pendingSelectionResolve({ cancelled: true, reason });
-      pendingSelectionResolve = null;
-      pendingSelectionReject = null;
-      pendingSelectionFromPopup = false;
+    const resolve = pendingSelectionResolve;
+    if (resolve) {
+      resolve({ cancelled: true, reason });
     }
+    resetPendingSelectionState();
     return;
   }
 
@@ -309,8 +330,10 @@ async function handleSelectionComplete(payload: unknown) {
   logger.log('Selection complete:', coordinates);
 
   try {
-    // Get the active tab to capture
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    // Capture the same tab/window where the selection overlay was injected.
+    const tab = pendingSelectionTarget
+      ? await chrome.tabs.get(pendingSelectionTarget.tabId)
+      : (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0];
     if (!tab.id || !tab.windowId) {
       throw new Error('No active tab found');
     }
@@ -408,13 +431,15 @@ async function handleSelectionComplete(payload: unknown) {
 
     await assetStorage.setAsset(asset);
 
+    const shouldAutoUpload = settings.autoUpload && !pendingSelectionFromPopup;
+
     // Show notification
-    await showCaptureNotification(settings.autoUpload && !pendingSelectionFromPopup);
+    await showCaptureNotification(shouldAutoUpload);
     await updateExtensionBadge();
 
     // Auto-upload if enabled and not initiated from popup
     // (popup handles upload after showing headline/caption modal)
-    if (settings.autoUpload && !pendingSelectionFromPopup) {
+    if (shouldAutoUpload) {
       try {
         const numbersApi = await getNumbersApi();
         let auth = numbersApi.auth.isAuthenticated();
@@ -453,17 +478,16 @@ async function handleSelectionComplete(payload: unknown) {
       clearTimeout(pendingSelectionTimeoutId);
       pendingSelectionTimeoutId = null;
     }
-    if (pendingSelectionResolve) {
-      pendingSelectionResolve({
+    const resolve = pendingSelectionResolve;
+    if (resolve) {
+      resolve({
         assetId,
         dataUrl,
         timestamp: captureTime.toISOString(),
-        autoUpload: settings.autoUpload && !pendingSelectionFromPopup,
+        autoUpload: shouldAutoUpload,
       });
-      pendingSelectionResolve = null;
-      pendingSelectionReject = null;
-      pendingSelectionFromPopup = false;
     }
+    resetPendingSelectionState();
   } catch (error: any) {
     logger.error('Failed to capture selection:', error);
     rejectPendingSelection(error);
@@ -499,16 +523,24 @@ async function handleScreenshotCapture(
 ) {
   const fromPopup = options?.fromPopup === true;
   try {
-    // Get current active tab first
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    // Prefer the tab captured by the popup click handler. In a service worker,
+    // currentWindow can be ambiguous once focus has moved to the extension popup.
+    const tab = options?.target?.tabId
+      ? await chrome.tabs.get(options.target.tabId)
+      : (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0];
+
     if (!tab.id || !tab.windowId) {
       throw new Error('No active tab found');
     }
 
     // Handle selection mode - inject content script and wait for selection
     if (mode === 'selection') {
-      pendingSelectionFromPopup = fromPopup;
-      return await handleSelectionCapture(tab);
+      try {
+        return await handleSelectionCapture(tab, fromPopup);
+      } catch (error) {
+        resetPendingSelectionState();
+        throw error;
+      }
     }
 
     // Capture timestamp at the very start for consistency

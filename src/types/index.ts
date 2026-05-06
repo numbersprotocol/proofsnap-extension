@@ -60,5 +60,10 @@ export interface CaptureScreenshotMessage {
     mode: CaptureMode;
     options?: Partial<ScreenshotOptions>;
     fromPopup?: boolean; // When true, skip auto-upload to allow adding metadata first
+    target?: {
+      tabId: number;
+      windowId: number;
+      url?: string;
+    };
   };
 }
