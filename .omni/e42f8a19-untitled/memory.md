@@ -18,7 +18,7 @@
 ## Key Discoveries
 
 - Selection capture is coordinated in `src/background/service-worker.ts`: popup sends `CAPTURE_SCREENSHOT`, service worker injects the selection overlay, then receives `SELECTION_COMPLETE` and crops via the offscreen document.
-- Selection overlay injection should guard `chrome.scripting` availability; fallback can use legacy `chrome.tabs.executeScript` before surfacing an explicit reload/permission error.
+- Popup runtime message listeners must ignore unrelated messages synchronously; an async listener can interfere with offscreen `ADD_WATERMARK` responses while the popup is open.
 
 ---
-_Last system refresh: 2026-05-06 06:48 UTC_
+_Last system refresh: 2026-05-06 07:09 UTC_

@@ -421,38 +421,6 @@ function startProofSnapSelectionOverlay(): void {
   }
 }
 
-function getSelectionOverlayInjectionCode(): string {
-  return `(${startProofSnapSelectionOverlay.toString()})();`;
-}
-
-async function injectSelectionOverlay(tabId: number): Promise<void> {
-  if (chrome.scripting?.executeScript) {
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      func: startProofSnapSelectionOverlay,
-    });
-    return;
-  }
-
-  if (chrome.tabs?.executeScript) {
-    await new Promise<void>((resolve, reject) => {
-      chrome.tabs.executeScript(tabId, { code: getSelectionOverlayInjectionCode() }, () => {
-        const runtimeError = chrome.runtime.lastError;
-        if (runtimeError) {
-          reject(new Error(runtimeError.message || 'Legacy script injection failed'));
-          return;
-        }
-        resolve();
-      });
-    });
-    return;
-  }
-
-  throw new Error(
-    'Chrome scripting API is unavailable. Reload the extension after updating and make sure it is running as a Manifest V3 extension with the scripting permission.'
-  );
-}
-
 /**
  * Handle selection mode capture
  * Injects content script and waits for user selection
@@ -483,7 +451,10 @@ async function handleSelectionCapture(tab: chrome.tabs.Tab, fromPopup: boolean):
       logger.warn('Could not focus selection target before injection:', getErrorMessage(focusError));
     }
 
-    await injectSelectionOverlay(tab.id);
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: startProofSnapSelectionOverlay,
+    });
   } catch (error) {
     const errorMessage = getErrorMessage(error);
     logger.error('Failed to inject selection script:', errorMessage);
