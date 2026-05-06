@@ -173,6 +173,17 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendRes
         });
       return true;
 
+    case 'REFRESH_BADGE':
+      // Only allow from extension pages, not content scripts
+      if (sender.tab) {
+        sendResponse({ success: false, error: 'Unauthorized sender' });
+        return false;
+      }
+      updateExtensionBadge()
+        .then(() => sendResponse({ success: true }))
+        .catch((error) => sendResponse({ success: false, error: error.message }));
+      return true;
+
     default:
       logger.warn('Unknown message type:', message.type);
       sendResponse({ success: false, error: 'Unknown message type' });
