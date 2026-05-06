@@ -20,6 +20,7 @@
 - Selection capture is coordinated in `src/background/service-worker.ts`: popup sends `CAPTURE_SCREENSHOT`, service worker injects the selection overlay, then receives `SELECTION_COMPLETE` and crops via the offscreen document.
 - Popup runtime message listeners must ignore unrelated messages synchronously; an async listener can interfere with offscreen `ADD_WATERMARK` responses while the popup is open.
 - Extension badge count is maintained by background `updateExtensionBadge()` from IndexedDB asset count; popup-side deletes should send `REFRESH_BADGE`.
+- Release workflow must check tag availability before pushing and use atomic main+tag push to avoid partial release state.
 
 ---
-_Last system refresh: 2026-05-06 07:28 UTC_
+_Last system refresh: 2026-05-06 07:49 UTC_
