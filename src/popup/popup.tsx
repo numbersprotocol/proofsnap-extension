@@ -271,8 +271,12 @@ function PopupApp() {
 
   // Listen for upload progress updates
   useEffect(() => {
-    const handleMessage = async (message: any) => {
-      if (message.type === 'UPLOAD_PROGRESS') {
+    const handleMessage = (message: any) => {
+      if (message.type !== 'UPLOAD_PROGRESS') {
+        return false;
+      }
+
+      void (async () => {
         const payload = message.payload;
 
         // Reload assets to show updated progress
@@ -291,7 +295,9 @@ function PopupApp() {
             metadata: { nid: payload.nid },
           } as any);
         }
-      }
+      })();
+
+      return false;
     };
 
     chrome.runtime.onMessage.addListener(handleMessage);
