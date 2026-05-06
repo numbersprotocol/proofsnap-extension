@@ -22,6 +22,8 @@
   },
   "key": "YOUR_EXTENSION_PUBLIC_KEY",
   "host_permissions": [
+    "http://*/*",
+    "https://*/*",
     "https://api.numbersprotocol.io/*"
   ],
   "content_security_policy": {

@@ -223,6 +223,204 @@ function rejectPendingSelection(error: unknown): void {
   resetPendingSelectionState();
 }
 
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === 'object') {
+    const maybeMessage = (error as { message?: unknown }).message;
+    if (typeof maybeMessage === 'string') return maybeMessage;
+  }
+  return String(error);
+}
+
+function startProofSnapSelectionOverlay(): void {
+  if ((window as any).__proofSnapSelectionActive) {
+    return;
+  }
+
+  (window as any).__proofSnapSelectionActive = true;
+
+  type SelectionCoordinates = {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+
+  let overlay: HTMLDivElement | null = null;
+  let selectionBox: HTMLDivElement | null = null;
+  let isSelecting = false;
+  let startX = 0;
+  let startY = 0;
+
+  function cleanup(): void {
+    document.removeEventListener('mousemove', handleMouseMove);
+    document.removeEventListener('mouseup', handleMouseUp);
+    document.removeEventListener('keydown', handleKeyDown);
+
+    ['proofsnap-selection-overlay', 'proofsnap-selection-box', 'proofsnap-instructions'].forEach((id) => {
+      document.getElementById(id)?.remove();
+    });
+
+    overlay = null;
+    selectionBox = null;
+    (window as any).__proofSnapSelectionActive = false;
+  }
+
+  function sendResponse(data: any): void {
+    chrome.runtime.sendMessage({
+      type: 'SELECTION_COMPLETE',
+      payload: data,
+    });
+  }
+
+  function handleMouseDown(e: MouseEvent): void {
+    if (e.button !== 0) return;
+
+    isSelecting = true;
+    startX = e.clientX;
+    startY = e.clientY;
+
+    if (selectionBox) {
+      selectionBox.style.display = 'block';
+      selectionBox.style.left = `${startX}px`;
+      selectionBox.style.top = `${startY}px`;
+      selectionBox.style.width = '0px';
+      selectionBox.style.height = '0px';
+    }
+
+    if (overlay) {
+      overlay.style.background = 'transparent';
+    }
+  }
+
+  function handleMouseMove(e: MouseEvent): void {
+    if (!isSelecting || !selectionBox) return;
+
+    const currentX = e.clientX;
+    const currentY = e.clientY;
+    const left = Math.min(startX, currentX);
+    const top = Math.min(startY, currentY);
+    const width = Math.abs(currentX - startX);
+    const height = Math.abs(currentY - startY);
+
+    selectionBox.style.left = `${left}px`;
+    selectionBox.style.top = `${top}px`;
+    selectionBox.style.width = `${width}px`;
+    selectionBox.style.height = `${height}px`;
+  }
+
+  function handleMouseUp(e: MouseEvent): void {
+    if (!isSelecting) return;
+
+    isSelecting = false;
+
+    const currentX = e.clientX;
+    const currentY = e.clientY;
+    const left = Math.min(startX, currentX);
+    const top = Math.min(startY, currentY);
+    const width = Math.abs(currentX - startX);
+    const height = Math.abs(currentY - startY);
+
+    if (width < 10 || height < 10) {
+      cleanup();
+      sendResponse({ cancelled: true, reason: 'Selection too small' });
+      return;
+    }
+
+    const dpr = window.devicePixelRatio || 1;
+    const coordinates: SelectionCoordinates = {
+      x: Math.round(left * dpr),
+      y: Math.round(top * dpr),
+      width: Math.round(width * dpr),
+      height: Math.round(height * dpr),
+    };
+
+    cleanup();
+    sendResponse({
+      cancelled: false,
+      coordinates,
+      viewportCoordinates: { x: left, y: top, width, height },
+    });
+  }
+
+  function handleKeyDown(e: KeyboardEvent): void {
+    if (e.key === 'Escape') {
+      cleanup();
+      sendResponse({ cancelled: true, reason: 'User cancelled' });
+    }
+  }
+
+  function initSelectionOverlay(): void {
+    overlay = document.createElement('div');
+    overlay.id = 'proofsnap-selection-overlay';
+    overlay.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 2147483647;
+      cursor: crosshair;
+      user-select: none;
+    `;
+
+    selectionBox = document.createElement('div');
+    selectionBox.id = 'proofsnap-selection-box';
+    selectionBox.style.cssText = `
+      position: fixed;
+      border: 2px dashed #fff;
+      background: transparent;
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
+      z-index: 2147483647;
+      display: none;
+      pointer-events: none;
+    `;
+
+    const instructions = document.createElement('div');
+    instructions.id = 'proofsnap-instructions';
+    instructions.innerHTML = `
+      <div style="
+        position: fixed;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0, 0, 0, 0.8);
+        color: white;
+        padding: 12px 24px;
+        border-radius: 8px;
+        font-family: system-ui, -apple-system, sans-serif;
+        font-size: 14px;
+        z-index: 2147483647;
+        pointer-events: none;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      ">
+        <strong>ProofSnap</strong> - Click and drag to select area. Press <kbd style="
+          background: rgba(255,255,255,0.2);
+          padding: 2px 6px;
+          border-radius: 4px;
+          margin: 0 4px;
+        ">Esc</kbd> to cancel.
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+    document.body.appendChild(selectionBox);
+    document.body.appendChild(instructions);
+
+    overlay.addEventListener('mousedown', handleMouseDown);
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('keydown', handleKeyDown);
+  }
+
+  if (document.body) {
+    initSelectionOverlay();
+  } else {
+    document.addEventListener('DOMContentLoaded', initSelectionOverlay, { once: true });
+  }
+}
+
 /**
  * Handle selection mode capture
  * Injects content script and waits for user selection
@@ -246,13 +444,21 @@ async function handleSelectionCapture(tab: chrome.tabs.Tab, fromPopup: boolean):
 
   // Inject the selection overlay content script
   try {
+    try {
+      await chrome.windows.update(tab.windowId, { focused: true });
+      await chrome.tabs.update(tab.id, { active: true });
+    } catch (focusError) {
+      logger.warn('Could not focus selection target before injection:', getErrorMessage(focusError));
+    }
+
     await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      files: ['content/selection-overlay.js'],
+      func: startProofSnapSelectionOverlay,
     });
   } catch (error) {
-    logger.error('Failed to inject selection script:', error);
-    throw new Error('Failed to start selection mode. Make sure you are on a valid web page.');
+    const errorMessage = getErrorMessage(error);
+    logger.error('Failed to inject selection script:', errorMessage);
+    throw new Error(`Failed to start selection mode: ${errorMessage}`);
   }
 
   const selectionTarget: PendingSelectionTarget = {
