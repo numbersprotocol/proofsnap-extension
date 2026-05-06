@@ -20,4 +20,4 @@
 - Selection capture is coordinated in `src/background/service-worker.ts`: popup sends `CAPTURE_SCREENSHOT`, service worker injects the selection overlay, then receives `SELECTION_COMPLETE` and crops via the offscreen document.
 
 ---
-_Last system refresh: 2026-05-06 05:53 UTC_
+_Last system refresh: 2026-05-06 06:10 UTC_
