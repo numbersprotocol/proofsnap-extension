@@ -12,6 +12,10 @@ on:
           - patch
           - minor
           - major
+      target_version:
+        description: 'Optional exact version override (for example, 1.2.1). If set, version_type is ignored.'
+        required: false
+        type: string
 
 jobs:
   release:
@@ -36,8 +40,15 @@ jobs:
 
       - name: Bump version
         id: bump
+        env:
+          VERSION_TYPE: ${{ github.event.inputs.version_type }}
+          TARGET_VERSION: ${{ github.event.inputs.target_version }}
         run: |
-          node scripts/bump-version.js ${{ github.event.inputs.version_type }} > bump_output.txt
+          if [ -n "$TARGET_VERSION" ]; then
+            node scripts/bump-version.js "$TARGET_VERSION" > bump_output.txt
+          else
+            node scripts/bump-version.js "$VERSION_TYPE" > bump_output.txt
+          fi
           cat bump_output.txt
           NEW_VERSION=$(grep "NEW_VERSION=" bump_output.txt | cut -d'=' -f2)
           OLD_VERSION=$(grep "OLD_VERSION=" bump_output.txt | cut -d'=' -f2)
@@ -67,7 +78,7 @@ jobs:
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add manifest.template.json package.json
+          git add manifest.template.json package.json package-lock.json
           git commit -m "chore: release version ${{ steps.bump.outputs.new_version }}"
           git tag -a "v${{ steps.bump.outputs.new_version }}" -m "Release version ${{ steps.bump.outputs.new_version }}"
           git push origin main
