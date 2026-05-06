@@ -183,8 +183,8 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendRes
  * Handle screenshot capture from message
  */
 async function handleScreenshotCaptureMessage(message: CaptureScreenshotMessage) {
-  const { mode, options = {}, fromPopup } = message.payload;
-  return await handleScreenshotCapture(mode, { ...options, fromPopup });
+  const { mode, options = {}, fromPopup, target } = message.payload;
+  return await handleScreenshotCapture(mode, { ...options, fromPopup, target });
 }
 
 // Store pending selection resolve/reject callbacks
@@ -499,8 +499,12 @@ async function handleScreenshotCapture(
 ) {
   const fromPopup = options?.fromPopup === true;
   try {
-    // Get current active tab first
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    // Prefer the tab captured by the popup click handler. In a service worker,
+    // currentWindow can be ambiguous once focus has moved to the extension popup.
+    const tab = options?.target?.tabId
+      ? await chrome.tabs.get(options.target.tabId)
+      : (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0];
+
     if (!tab.id || !tab.windowId) {
       throw new Error('No active tab found');
     }

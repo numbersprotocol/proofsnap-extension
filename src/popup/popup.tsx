@@ -102,11 +102,21 @@ function PopupApp() {
   async function handleCapture(mode: 'visible' | 'selection' = captureMode) {
     setCapturing(true);
     try {
+      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      if (!tab?.id || !tab.windowId) {
+        throw new Error('No active tab found');
+      }
+
       const response = await chrome.runtime.sendMessage({
         type: 'CAPTURE_SCREENSHOT',
         payload: {
           mode: mode,
           fromPopup: true, // Skip auto-upload so user can add headline/caption first
+          target: {
+            tabId: tab.id,
+            windowId: tab.windowId,
+            url: tab.url,
+          },
         },
       });
 
