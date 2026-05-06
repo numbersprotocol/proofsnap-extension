@@ -47,7 +47,8 @@ export type MessageType =
   | 'ADD_WATERMARK'
   | 'START_GOOGLE_AUTH'
   | 'SELECTION_COMPLETE'
-  | 'CROP_IMAGE';
+  | 'CROP_IMAGE'
+  | 'REFRESH_BADGE';
 
 export interface ExtensionMessage<T = any> {
   type: MessageType;

@@ -195,6 +195,17 @@ function PopupApp() {
     }
   }
 
+  async function refreshExtensionBadge() {
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'REFRESH_BADGE' });
+      if (!response?.success) {
+        logger.warn('Failed to refresh badge:', response?.error || 'Unknown error');
+      }
+    } catch (error) {
+      logger.warn('Failed to refresh badge:', error);
+    }
+  }
+
   async function handleDeleteAsset(assetId: string) {
     if (!confirm('Are you sure you want to delete this screenshot?')) {
       return;
@@ -204,6 +215,7 @@ function PopupApp() {
       const updatedAssets = await indexedDBService.getAllAssets();
       setAssets(updatedAssets);
       setEditingAsset(null);
+      await refreshExtensionBadge();
     } catch (error) {
       logger.error('Failed to delete asset:', error);
       alert('Failed to delete screenshot');
@@ -257,6 +269,7 @@ function PopupApp() {
       try {
         const allAssets = await indexedDBService.getAllAssets();
         await Promise.all(allAssets.map((asset) => indexedDBService.deleteAsset(asset.id)));
+        await refreshExtensionBadge();
       } catch (error) {
         logger.error('Failed to clear IndexedDB assets on logout:', error);
       }
