@@ -227,7 +227,7 @@ function rejectPendingSelection(error: unknown): void {
  * Handle selection mode capture
  * Injects content script and waits for user selection
  */
-async function handleSelectionCapture(tab: chrome.tabs.Tab): Promise<any> {
+async function handleSelectionCapture(tab: chrome.tabs.Tab, fromPopup: boolean): Promise<any> {
   if (!tab.id || !tab.windowId) {
     throw new Error('No active tab found');
   }
@@ -241,6 +241,8 @@ async function handleSelectionCapture(tab: chrome.tabs.Tab): Promise<any> {
   if (pendingSelectionReject) {
     rejectPendingSelection(new Error('Selection cancelled: a new selection was started'));
   }
+
+  pendingSelectionFromPopup = fromPopup;
 
   // Inject the selection overlay content script
   try {
@@ -533,9 +535,8 @@ async function handleScreenshotCapture(
 
     // Handle selection mode - inject content script and wait for selection
     if (mode === 'selection') {
-      pendingSelectionFromPopup = fromPopup;
       try {
-        return await handleSelectionCapture(tab);
+        return await handleSelectionCapture(tab, fromPopup);
       } catch (error) {
         resetPendingSelectionState();
         throw error;
