@@ -62,8 +62,10 @@ Please help me with this codebase.
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 22.23.4 or a newer 22.x release (used by CI and release builds). Node.js 24.22.1+ within 24.x and 26.12.1+ within 26.x also meet the security minimums.
 - npm or yarn
+
+CI and release workflows use `actions/setup-node` with `check-latest: true` to select a secure 22.x release, downloading it when it is not preinstalled on the runner. JavaScript actions use the runner-managed Node.js 24 runtime, which is separate from the Node.js installed by `setup-node`; its patch version depends on the GitHub-hosted runner rollout. Node.js is used for development, builds, and packaging; the installed extension runs in Chrome.
 
 ### Installation
 
